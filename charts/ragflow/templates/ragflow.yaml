@@ -45,6 +45,7 @@ spec:
             - { name: INFINITY_HOST, value: infinity }
             - { name: KVROCKS_HOST, value: kvrocks }
             - { name: KVROCKS_PORT, value: "6379" }
+            - { name: REDIS_PASSWORD, value: {{ .Values.redis.password | quote }} }
             - { name: NATS_HOST, value: nats }
             - { name: TZ, value: UTC }
           ports:

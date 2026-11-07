@@ -55,6 +55,16 @@ kvrocks:
   image: apache/kvrocks:2.16.0
   pvcSize: 2Gi
 
+redis:
+  # KvRocks password shared by the ragflow server (REDIS_PASSWORD)
+  # and kvrocks itself (requirepass). This is RAGFlow's own
+  # published default - its service_conf template renders
+  # ${REDIS_PASSWORD:-infini_rag_flow} - and kvrocks is reachable
+  # only inside the namespace. Live finding 2026-11-06: with no
+  # requirepass set, every ragflow server dies with "Client sent
+  # AUTH, but no password is set".
+  password: "infini_rag_flow"
+
 nats:
   image: nats:2
 

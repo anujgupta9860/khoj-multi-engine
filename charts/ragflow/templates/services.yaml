@@ -92,7 +92,7 @@ spec:
           # The stock image config listens on 6666; RAGFlow expects
           # the Redis port. Upstream renders a config file for this;
           # the equivalent CLI overrides are bind/port/dir.
-          args: ["--bind", "0.0.0.0", "--port", "6379", "--dir", "/data"]
+          args: ["--bind", "0.0.0.0", "--port", "6379", "--dir", "/data", "--requirepass", {{ .Values.redis.password | quote }}]
           ports: [{ containerPort: 6379 }]
           readinessProbe:
             tcpSocket: { port: 6379 }
