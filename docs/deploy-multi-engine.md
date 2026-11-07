@@ -35,10 +35,10 @@ gcloud builds submit --tag us-central1-docker.pkg.dev/innovation-lab-2026/khoj/k
 2. `kubectl create namespace khoj-ragflow`
 3. Install the engine:
    `helm install ragflow charts/ragflow -n khoj-ragflow`
-   (values default docEngine=elasticsearch; if the ES pod refuses
-   to start over vm.max_map_count on Autopilot, reinstall with
-   `--set docEngine=infinity` and note the change — it changes the
-   retrieval characteristics being compared.)
+   (docEngine defaults to infinity — as deployed 2026-11-06:
+   Autopilot's Warden webhook rejects the vm.max_map_count sysctl
+   the Elasticsearch pod needs, so ES is not installable on this
+   cluster. The comparison notes this stack runs Infinity.)
 4. Wait for all pods Running; open the RAGFlow UI
    (`kubectl -n khoj-ragflow port-forward svc/ragflow 8080:80` or
    enable `server.ingress`), register the admin account, then in

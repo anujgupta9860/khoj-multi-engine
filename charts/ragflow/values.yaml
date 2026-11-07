@@ -10,9 +10,12 @@ image:
 
 # Doc engine: elasticsearch (RAGFlow's default) or infinity (their
 # single-container engine - lighter, slightly different retrieval
-# characteristics). Pick one per deployment; the Khoj comparison
-# should note which was used.
-docEngine: elasticsearch
+# characteristics). DEPLOYED AS infinity: on GKE Autopilot the ES
+# pod is rejected by the Warden admission webhook (vm.max_map_count
+# is not in Autopilot's allowed sysctls - verified live 2026-11-06),
+# so elasticsearch only works on clusters that allow the sysctl.
+# The Khoj comparison must note this stack runs Infinity.
+docEngine: infinity
 
 mysql:
   image: mysql:8.0.40
@@ -38,7 +41,10 @@ infinity:
     limits: { cpu: "2", memory: "4Gi" }
 
 minio:
-  image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+  # pgsty/silo is the maintained MinIO fork RAGFlow's own compose
+  # switched to - minio/minio no longer exists on Docker Hub
+  # (verified 2026-11-06: repository returns 404).
+  image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z
   user: rag_flow
   pvcSize: 10Gi
   resources:
