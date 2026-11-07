@@ -127,7 +127,11 @@ def rewrite_query(question: str, history: list) -> str | None:
                 "temperature": 0,
             },
             headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-            timeout=20,
+            # 6s, not 20: the rewrite is optional polish, and a slow
+            # model must not eat the chat endpoint's time budget
+            # (live finding 2026-11-07: 20s rewrite + 45s answer
+            # timeouts stacked past the ingress timeout -> 502).
+            timeout=6,
         )
         if resp.status_code != 200:
             return None
@@ -261,7 +265,9 @@ def _chat_completion(messages: list, tools: list | None = None) -> dict:
         f"{OPENAI_BASE_URL}/chat/completions",
         json=payload,
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-        timeout=45,
+        # 30s per completion; worst case (rewrite + 3 loop rounds)
+        # stays inside the ingress BackendConfig timeoutSec=120.
+        timeout=30,
     )
     if resp.status_code != 200:
         raise RuntimeError(resp.text[:200])

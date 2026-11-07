@@ -117,7 +117,7 @@ def _ragflow_http():
             lambda url, kw: Resp(200, {"code": 0, "data": True}))
     http.on("GET", "/api/v1/datasets/ds1/documents?page=1&page_size=100",
             lambda url, kw: Resp(200, {"code": 0, "data": {"docs": [
-                {"id": "rf-doc-1", "name": "w2.pdf", "run": "DONE", "chunk_count": 7},
+                {"id": "rf-doc-1", "name": "w2.pdf", "ingestion_status": "COMPLETED", "progress": 1, "chunk_count": 7},
             ]}}))
     http.on("POST", "/api/v1/retrieval", lambda url, kw: Resp(200, {"code": 0, "data": {
         "chunks": [

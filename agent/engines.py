@@ -25,7 +25,7 @@ ENGINE = os.environ.get("KHOJ_ENGINE", "openrag").strip().lower()
 OPENRAG_URL = os.environ.get("OPENRAG_URL", "http://openrag-backend:8000")
 RAGFLOW_URL = os.environ.get("RAGFLOW_URL", "http://ragflow:9380")
 RAGFLOW_API_KEY = _env("RAGFLOW_API_KEY")
-RAGFLOW_MIN_SIMILARITY = float(os.environ.get("RAGFLOW_MIN_SIMILARITY", "0.2"))
+RAGFLOW_MIN_SIMILARITY = float(os.environ.get("RAGFLOW_MIN_SIMILARITY", "0.6"))
 
 _rf_datasets: dict[str, str] = {}
 

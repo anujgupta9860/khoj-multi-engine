@@ -1,0 +1,13 @@
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: khoj
+spec:
+  # Chat answers can be slow when the answering model is slow: the
+  # agent's worst case is a query rewrite plus up to three tool-loop
+  # completions (each time-boxed in the agent) before it falls back
+  # to an extractive answer. The GCE default backend timeout cut
+  # those requests off with a Google 502 while the agent still
+  # completed them - live finding 2026-11-07 on khoj-ragflow.
+  # 120s covers the agent's own budget.
+  timeoutSec: 120

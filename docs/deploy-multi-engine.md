@@ -85,3 +85,20 @@ gcloud builds submit --tag us-central1-docker.pkg.dev/innovation-lab-2026/khoj/k
   relevance floor differs — OpenRAG 1.5, RAGFlow similarity,
   NeMo cosine 0.35 starting point) — compare answer quality and
   latency, not raw scores.
+
+## Live findings, 2026-11-07 (khoj-ragflow E2E)
+
+- RAGFlow v1.0 dataset create rejects `chunk_method` (extra input);
+  use `parse_type: 1, parser_id: "general"`.
+- RAGFlow v1.0 document records have NO `run` field: completion is
+  `ingestion_status: "COMPLETED"`, `progress: 1`. The adapter maps
+  both shapes (`_doc_ready`/`_doc_failed` in app/engines/ragflow.py).
+- Similarity calibration (RAGFlow+Infinity, 1-chunk corpus): the
+  on-topic probe scored 0.812, an unrelated question scored the same
+  chunk 0.499. `RAGFLOW_MIN_SIMILARITY` defaults to 0.6 (was 0.2);
+  revisit with the 12-query bench on a real corpus.
+- Chat 502s were the GCE ingress default backend timeout, not the
+  app: the agent completed the request (~65s of stacked Gemini
+  timeouts) after the LB had already answered 502. Agent timeouts
+  trimmed (rewrite 6s, completions 30s) and charts/khoj now ships
+  a BackendConfig with timeoutSec 120.

@@ -29,13 +29,38 @@ from .base import Engine, EngineError
 
 RAGFLOW_URL = os.environ.get("RAGFLOW_URL", "http://ragflow:9380")
 RAGFLOW_API_KEY = _env("RAGFLOW_API_KEY")
-MIN_SIMILARITY = float(os.environ.get("RAGFLOW_MIN_SIMILARITY", "0.2"))
+# Calibrated live 2026-11-07 on the zorblax probe against
+# RAGFlow+Infinity: an unrelated question scored the only chunk
+# 0.499 while the on-topic question scored 0.812 - RAGFlow hybrid
+# similarity runs high on small corpora, so the floor sits at 0.6,
+# between the two. Revisit with the 12-query bench.
+MIN_SIMILARITY = float(os.environ.get("RAGFLOW_MIN_SIMILARITY", "0.6"))
 EMBEDDING_MODEL = os.environ.get("RAGFLOW_EMBEDDING_MODEL", "")
 
 
 def dataset_name(scope_key: str) -> str:
     """'org:khoj' -> 'khoj-org-khoj'; 'user:<uid>' -> 'khoj-user-<uid>'."""
     return "khoj-" + scope_key.replace(":", "-").replace("/", "-")
+
+
+def _doc_ready(doc) -> bool:
+    """RAGFlow v1.0 document records have no `run` field (the older
+    API shape this adapter was written against): completion is
+    ingestion_status == COMPLETED with progress 1 - verified live
+    2026-11-07 (a fully parsed, searchable doc sat at 'indexing'
+    in Khoj because only `run` was checked). The legacy run check
+    stays as a fallback for other RAGFlow versions."""
+    status = str(doc.get("ingestion_status", "")).upper()
+    if status:
+        return status == "COMPLETED"
+    return str(doc.get("run", "")).upper() == "DONE"
+
+
+def _doc_failed(doc) -> bool:
+    status = str(doc.get("ingestion_status", "")).upper()
+    if status:
+        return status in ("FAILED", "ERROR", "CANCELLED", "CANCELED")
+    return str(doc.get("run", "")).upper() in ("FAIL", "CANCEL")
 
 
 class RAGFlowEngine(Engine):
@@ -135,11 +160,8 @@ class RAGFlowEngine(Engine):
         docs = (data or {}).get("docs", []) if isinstance(data, dict) else []
         for doc in docs:
             if doc.get("id") == ref:
-                run = str(doc.get("run", "")).upper()
-                if run == "FAIL":
+                if _doc_failed(doc):
                     return str(doc.get("progress_msg") or "parsing failed")[-200:]
-                if run == "CANCEL":
-                    return "parsing cancelled"
                 return None
         return None
 
@@ -156,7 +178,7 @@ class RAGFlowEngine(Engine):
             by_name = {d.get("name"): d for d in docs.values()}
             for rec in recs:
                 doc = docs.get(rec.get("engineRef", "")) or by_name.get(rec.get("filename", ""))
-                if doc and str(doc.get("run", "")).upper() == "DONE":
+                if doc and _doc_ready(doc):
                     ready.add(rec.get("docId", ""))
         return ready
 
@@ -173,7 +195,7 @@ class RAGFlowEngine(Engine):
             by_name = {d.get("name"): d for d in docs.values()}
             for rec in recs:
                 doc = docs.get(rec.get("engineRef", "")) or by_name.get(rec.get("filename", ""))
-                if doc and str(doc.get("run", "")).upper() == "DONE":
+                if doc and _doc_ready(doc):
                     out[rec.get("docId", "")] = {
                         "chunks": doc.get("chunk_count"),
                         "indexed_time": None,
