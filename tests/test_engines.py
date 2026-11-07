@@ -158,6 +158,62 @@ def test_ragflow_ingest_starts_parsing():
     print("ragflow parse-start ok")
 
 
+# --- NeMo engine (appended) -------------------------------------------------
+
+from app.engines.nemo import NeMoEngine, chunk_text, extract_text  # noqa: E402
+
+
+def _nemo_http():
+    http = FakeHTTP()
+    http.on("POST", "/v1/embeddings", lambda url, kw: Resp(200, {"data": [
+        {"index": i, "embedding": [0.1] * 1024}
+        for i, _ in enumerate(kw["json"]["input"])
+    ]}))
+    http.on("POST", "/v2/vectordb/collections/has",
+            lambda url, kw: Resp(200, {"code": 0, "data": {"has": True}}))
+    http.on("POST", "/v2/vectordb/entities/insert",
+            lambda url, kw: Resp(200, {"code": 0, "data": {"insertCount": len(kw["json"]["data"])}}))
+    http.on("POST", "/v2/vectordb/entities/query", lambda url, kw: Resp(200, {
+        "code": 0, "data": [{"doc_id": "doc-abc"}] if "doc-abc" in kw["json"]["filter"] else [],
+    }))
+    http.on("POST", "/v2/vectordb/entities/search", lambda url, kw: Resp(200, {
+        "code": 0, "data": [
+            {"doc_id": "doc-abc", "chunk_text": "nemo hit", "distance": 0.81},
+            {"doc_id": "doc-zzz", "chunk_text": "alien", "distance": 0.95},
+            {"doc_id": "doc-abc", "chunk_text": "weak", "distance": 0.12},
+        ]}))
+    http.on("POST", "/v2/vectordb/entities/delete",
+            lambda url, kw: Resp(200, {"code": 0, "data": {}}))
+    http.on("POST", "/v1/ranking", lambda url, kw: Resp(200, {
+        "rankings": [{"index": 0, "logit": 3.5}]}))
+    return http
+
+
+def test_nemo_extract_and_chunk():
+    assert "hello" in extract_text("a.txt", b"hello world")
+    chunks = chunk_text("para one\n\n" + "x" * 2500 + "\n\npara last", size=1000, overlap=200)
+    assert len(chunks) >= 3 and chunks[0] == "para one"
+    print("nemo extract/chunk ok")
+
+
+def test_nemo_end_to_end():
+    http = _nemo_http()
+    eng = NeMoEngine(http=http, base_url="http://nim/v1", milvus_url="http://mv", api_key="k")
+    task_id, ref = eng.ingest(filename="notes.txt", data=b"nemotron notes content",
+                              mime="text/plain", scope="users/u1",
+                              scope_key="user:u1", doc_id="doc-abc")
+    assert ref == "doc-abc"
+    insert = [kw for m, u, kw in http.calls if u.endswith("entities/insert")][0]
+    assert insert["json"]["data"][0]["scope_key"] == "user:u1"
+    assert eng.indexed_doc_ids([REC]) == {"doc-abc"}
+    chunks = eng.search_chunks("notes", [REC])
+    # alien doc post-filtered, weak chunk below the 0.35 floor dropped
+    assert [c["text"] for c in chunks] == ["nemo hit"], chunks
+    search = [kw for m, u, kw in http.calls if u.endswith("entities/search")][0]
+    assert 'doc_id in ["doc-abc"]' in search["json"]["filter"]
+    eng.delete_document(REC, "users/u1")
+    print("nemo end-to-end ok")
+
 if __name__ == "__main__":
     test_openrag_search_floor_and_scope()
     test_openrag_delete_no_chunks_is_success()
@@ -165,4 +221,8 @@ if __name__ == "__main__":
     test_ragflow_dataset_name()
     test_ragflow_end_to_end()
     test_ragflow_ingest_starts_parsing()
+    test_nemo_extract_and_chunk()
+    test_nemo_end_to_end()
     print("ALL ENGINE TESTS PASSED")
+
+
