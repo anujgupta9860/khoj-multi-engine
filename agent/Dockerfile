@@ -6,5 +6,6 @@ COPY agent/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app/__init__.py app/orgs.py app/auth.py ./app/
 COPY agent/main.py ./agent_main.py
+COPY agent/engines.py ./engines.py
 ENV PORT=8080
 CMD exec uvicorn agent_main:app --host 0.0.0.0 --port ${PORT}

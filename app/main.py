@@ -52,6 +52,7 @@ from .db import Users, connect as db_connect
 from .mcp_server import handle_rpc
 from .orgs import PLATFORM_ORG_ID, ROLES, UPLOAD_ROLES, SqliteOrgService
 from .storage import get_storage
+from .engines import EngineError, get_engine
 # OpenRAG is the single retrieval engine (in-cluster service).
 OPENRAG_URL = os.environ.get("OPENRAG_URL", "http://openrag-backend:8000")
 # NOTE: the OpenRAG backend serves UNPREFIXED routes (/search, /files,
@@ -266,23 +267,6 @@ def authorize_corpus(user: dict, org_id: str | None) -> None:
         org_active(user, org_id)
 
 
-def _openrag_search(query: str, filenames: list, limit: int = 40) -> list:
-    """One OpenRAG chunk search, server-side filtered to the given
-    document names. Returns raw chunk dicts (filename/text/score)."""
-    resp = requests.post(
-        f"{OPENRAG_URL}/search",
-        json={"query": query, "filters": {"filename": filenames}, "limit": limit},
-        timeout=30,
-    )
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502, detail=f"Search backend: {resp.text[:300]}"
-        )
-    data = resp.json()
-    chunks = data if isinstance(data, list) else data.get("results", [])
-    return [c for c in chunks if c.get("score", 0) >= MIN_SCORE]
-
-
 def run_search(
     query: str,
     user: dict,
@@ -291,45 +275,49 @@ def run_search(
     source: str = "web",
 ) -> dict:
     # Authorization happens here (membership + approval for orgs). The
-    # corpus scope itself is enforced by filtering OpenRAG to exactly
-    # this corpus's document names (each name carries its doc-id
-    # prefix), plus a post-filter as a second line of defence.
+    # corpus scope itself is enforced inside the engine (its search
+    # only ever addresses this corpus's documents), plus a post-filter
+    # on doc_id here as a second line of defence.
     authorize_corpus(user, org_id)
     records = _corpus_records(user, org_id)
-    by_name = {r["_openrag_name"]: r.get("filename", "") for r in records}
+    by_id = {r.get("docId", ""): r.get("filename", "") for r in records}
     started = time.monotonic()
     results = []
-    if by_name:
-        chunks = _openrag_search(query, sorted(by_name), limit=40)
+    if by_id:
+        try:
+            chunks = get_engine().search_chunks(query, records, limit=40)
+        except EngineError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
         grouped: dict[str, dict] = {}
         order: list[str] = []
         for chunk in chunks:
-            name = chunk.get("filename", "")
-            if name not in by_name:
+            doc_id = chunk.get("doc_id", "")
+            if doc_id not in by_id:
                 continue  # another corpus's document - never returned
-            if name not in grouped:
-                grouped[name] = {
-                    "title": by_name[name],
+            if doc_id not in grouped:
+                grouped[doc_id] = {
+                    "title": by_id[doc_id],
                     "link": "",
                     "snippets": [],
                     "extractive": [],
                     "_score": chunk.get("score", 0),
                 }
-                order.append(name)
-            entry = grouped[name]
+                order.append(doc_id)
+            entry = grouped[doc_id]
             entry["_score"] = max(entry["_score"], chunk.get("score", 0))
             text = clean_snippet(chunk.get("text", ""))
             if text and len(entry["snippets"]) < 3:
                 entry["snippets"].append(text)
-        order.sort(key=lambda n: -grouped[n]["_score"])
-        for name in order[:page_size]:
-            entry = grouped[name]
+        order.sort(key=lambda d: -grouped[d]["_score"])
+        for doc_id in order[:page_size]:
+            entry = grouped[doc_id]
             entry.pop("_score", None)
             if not entry["snippets"]:
-                # OpenRAG returns shell hits (filename, empty text) for
-                # below-relevance matches; a result with no excerpt is
-                # not a result. (Seen live 2026-11-03: an unrelated query
-                # listed the caller's own docs with empty snippets.)
+                # Engines can return shell hits (a document match with
+                # no excerpt) for below-relevance queries; a result
+                # with no excerpt is not a result. (Seen live
+                # 2026-11-03 on OpenRAG: an unrelated query listed the
+                # caller's own docs with empty snippets.)
                 continue
             results.append(entry)
     out = {"summary": "", "totalSize": len(results), "results": results}
@@ -347,53 +335,6 @@ def run_search(
     return out
 
 
-_files_cache: dict = {"at": 0.0, "names": {}}
-
-
-def _openrag_files() -> dict:
-    """All documents in OpenRAG: name -> {chunks, indexed_time}.
-    Cached for a few seconds; list/search calls share one fetch."""
-    now = time.monotonic()
-    if now - _files_cache["at"] < 5:
-        return _files_cache["names"]
-    resp = requests.get(f"{OPENRAG_URL}/files", timeout=15)
-    if resp.status_code != 200:
-        raise HTTPException(
-            status_code=502, detail=f"List backend: {resp.text[:300]}"
-        )
-    data = resp.json()
-    entries = data.get("files", data) if isinstance(data, dict) else data
-    names = {}
-    for entry in entries or []:
-        name = entry.get("filename") or entry.get("title") or ""
-        if name:
-            names[name] = entry
-    _files_cache.update(at=now, names=names)
-    return names
-
-
-def _openrag_task_error(task_id: str) -> str | None:
-    """Error message when an OpenRAG ingestion task failed; None when
-    it succeeded, is still running, or cannot be checked."""
-    if not task_id:
-        return None
-    for path in (f"/tasks/{task_id}", f"/v1/tasks/{task_id}"):
-        try:
-            resp = requests.get(f"{OPENRAG_URL}{path}", timeout=10)
-        except Exception:
-            return None
-        if resp.status_code == 404:
-            continue
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        status = str(data.get("status", "")).lower()
-        if status in ("failed", "error", "failure"):
-            return str(data.get("error") or data.get("message") or "ingestion failed")[:200]
-        return None
-    return None
-
-
 def list_documents(user: dict, org_id: str | None = None) -> list:
     """Every file in this corpus, each with an ingestion status: a file
     appears the moment it is uploaded ('indexing'), flips to 'ready'
@@ -403,11 +344,14 @@ def list_documents(user: dict, org_id: str | None = None) -> list:
     records = _corpus_records(user, org_id)
     if not records:
         return []
-    indexed = _openrag_files()
+    try:
+        indexed_ids = get_engine().indexed_doc_ids(records)
+    except EngineError:
+        indexed_ids = set()
     out = {}
     for rec in records:
         doc_id = rec.get("docId", "")
-        if rec.get("_openrag_name") in indexed:
+        if doc_id in indexed_ids:
             out[doc_id] = {
                 "id": doc_id,
                 "title": rec.get("filename") or doc_id,
@@ -415,7 +359,7 @@ def list_documents(user: dict, org_id: str | None = None) -> list:
                 "corpus": "global" if rec.get("_global") else "own",
             }
             continue
-        error = _openrag_task_error(rec.get("openragTask", ""))
+        error = get_engine().doc_error(rec)
         item = {
             "id": doc_id,
             "title": rec.get("filename") or doc_id,
@@ -869,12 +813,16 @@ def agent_corpus(orgId: str | None = None, authorization: str | None = Header(de
     Replaces the agent's former direct database reads."""
     user = require_user(authorization)
     authorize_corpus(user, orgId)
+    engine = get_engine()
     files = []
     for rec in _corpus_records(user, orgId):
         files.append({
             "docId": rec.get("docId", ""),
             "filename": rec.get("filename", ""),
             "openragName": rec.get("_openrag_name", ""),
+            "engineKey": engine.corpus_key(rec),
+            "scopeKey": rec.get("scopeKey", ""),
+            "engineRef": rec.get("engineRef", ""),
             "scope": _scope_prefix_of(rec, user),
         })
     return {"files": files}
@@ -914,47 +862,6 @@ def document_raw(doc_id: str, authorization: str | None = Header(default=None)):
     return Response(content=data, media_type=mime)
 
 
-def _delete_knowledge_filter(openrag_name: str, filename: str) -> None:
-    """Best-effort: remove the per-document OpenRAG knowledge filter
-    created at upload time, so a deleted document also leaves OpenRAG's
-    Knowledge tab. Matches the filter by its data_sources or by the
-    exact 'Uploaded via Khoj' description. Never fails the delete."""
-    display = os.path.splitext(filename)[0] or filename
-    try:
-        resp = requests.post(
-            f"{OPENRAG_URL}/knowledge-filter/search",
-            json={"query": display, "limit": 25},
-            timeout=15,
-        )
-        if resp.status_code != 200:
-            return
-        candidates = []
-        stack = [resp.json()]
-        while stack:
-            cur = stack.pop()
-            if isinstance(cur, dict):
-                if "id" in cur and ("queryData" in cur or "name" in cur):
-                    candidates.append(cur)
-                stack.extend(cur.values())
-            elif isinstance(cur, list):
-                stack.extend(cur)
-        for entry in candidates:
-            qd = entry.get("queryData") or entry.get("query_data") or {}
-            sources = ((qd.get("filters") or {}).get("data_sources")) or []
-            if openrag_name in sources or entry.get("description") == (
-                f"Uploaded via Khoj: {filename}"
-            ):
-                try:
-                    requests.delete(
-                        f"{OPENRAG_URL}/knowledge-filter/{entry['id']}",
-                        timeout=15,
-                    )
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-
 @app.delete("/api/documents/{doc_id}")
 def delete_document(
     doc_id: str,
@@ -979,45 +886,19 @@ def delete_document(
     if record is None:
         raise HTTPException(status_code=404, detail="Document not found")
     filename = record.get("filename", "")
-    or_name = openrag_filename(doc_id, filename)
-    # OpenRAG reports "no matching chunks" as a failure (success:false,
-    # deleted_chunks:0) — for a document that is still indexing or
-    # failed, that IS the desired end state: nothing in the index.
-    # Only a real index error blocks the delete.
+    # The engine removes the document's chunks; a real index error
+    # raises EngineError and nothing else is removed. "Already
+    # absent" (still indexing / failed) is success inside the engine.
     try:
-        resp = requests.post(
-            f"{OPENRAG_URL}/documents/delete-by-filename",
-            json={"filename": or_name},
-            timeout=30,
-        )
-        try:
-            payload = resp.json()
-        except Exception:
-            payload = {}
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Index delete unreachable, nothing was removed: {exc}",
-        )
-    if not isinstance(payload, dict):
-        payload = {}
-    no_chunks = payload.get("deleted_chunks") == 0 and (
-        "No matching document chunks" in str(payload.get("error") or "")
-        or "No matching document chunks" in str(payload.get("message") or "")
-    )
-    index_ok = (resp.status_code == 200 and payload.get("success") is not False) or no_chunks
-    if not index_ok:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Index delete failed, nothing was removed: {resp.text[:200]}",
-        )
-    _delete_knowledge_filter(or_name, filename)
+        get_engine().delete_document(record, scope)
+    except EngineError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    get_engine().remove_doc_handle(record, scope)
     try:
         get_storage().delete(f"{scope}/{filename}")
     except Exception:
         pass
     org_service().remove_upload(doc_id)
-    _files_cache["at"] = 0.0
     log_event(
         kind="delete",
         uid=user["uid"],
@@ -1238,40 +1119,6 @@ _MIME_BY_EXT = {
 }
 
 
-def _create_knowledge_filter(openrag_name: str, filename: str) -> None:
-    """Best-effort: register an uploaded document as an OpenRAG
-    knowledge filter so Khoj uploads also land in OpenRAG's Knowledge
-    tab. That tab lists filters, not files; one filter per document
-    (data_sources = [the document]) is OpenRAG's own onboarding
-    convention. Never fails the upload."""
-    display = os.path.splitext(filename)[0] or filename
-    query_data = {
-        "query": "",
-        "filters": {
-            "data_sources": [openrag_name],
-            "document_types": ["*"],
-            "owners": ["*"],
-            "connector_types": ["*"],
-        },
-        "limit": 10,
-        "scoreThreshold": 0,
-        "color": "green",
-        "icon": "file",
-    }
-    try:
-        requests.post(
-            f"{OPENRAG_URL}/knowledge-filter",
-            json={
-                "name": display,
-                "description": f"Uploaded via Khoj: {filename}",
-                "queryData": query_data,
-            },
-            timeout=15,
-        )
-    except Exception:
-        pass
-
-
 @app.post("/api/upload")
 def upload(
     file: UploadFile = File(...),
@@ -1297,21 +1144,13 @@ def upload(
     get_storage().put(f"{scope}/{filename}", data, mime)
 
     doc_id = document_id(scope, filename)
-    or_name = openrag_filename(doc_id, filename)
-    resp = requests.post(
-        f"{OPENRAG_URL}/router/upload_ingest",
-        files={"file": (or_name, io.BytesIO(data), mime)},
-        timeout=120,
-    )
-    if resp.status_code not in (200, 202):
-        raise HTTPException(
-            status_code=502, detail=f"Ingestion trigger: {resp.text[:300]}"
-        )
-    task_id = ""
     try:
-        task_id = resp.json().get("task_id", "")
-    except Exception:
-        pass
+        task_id, engine_ref = get_engine().ingest(
+            filename=filename, data=data, mime=mime,
+            scope=scope, scope_key=scope_key, doc_id=doc_id,
+        )
+    except EngineError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
     try:
         org_service().record_upload({
             "docId": doc_id,
@@ -1320,11 +1159,13 @@ def upload(
             "orgId": orgId,
             "filename": filename,
             "openragTask": task_id,
+            "engineTask": task_id,
+            "engineRef": engine_ref,
             "uploadedAt": int(time.time()),
         })
     except Exception:
         pass  # status tracking is best-effort; the upload itself succeeded
-    _create_knowledge_filter(or_name, filename)
+    get_engine().after_upload({"docId": doc_id, "filename": filename}, scope)
     log_event(
         kind="upload",
         uid=user["uid"],
@@ -1426,17 +1267,18 @@ def admin_uploads(authorization: str | None = Header(default=None)):
     require_super_admin(user)
     svc = org_service()
     names = _org_name_map(svc)
+    all_records = svc.list_all_uploads()
     try:
-        indexed = _openrag_files()
+        indexed = get_engine().index_meta(all_records)
     except Exception:
         indexed = {}
     groups_global, groups_orgs, groups_personal = [], {}, {}
-    for rec in svc.list_all_uploads():
+    for rec in all_records:
         entry = {
             "filename": rec.get("filename", ""),
             "uploadedAt": rec.get("uploadedAt"),
             "uid": rec.get("uid", ""),
-            "status": "ready" if openrag_filename(rec.get("docId", ""), rec.get("filename", "")) in indexed else "indexing",
+            "status": "ready" if rec.get("docId", "") in indexed else "indexing",
         }
         org_id = rec.get("orgId")
         if org_id == PLATFORM_ORG_ID:
@@ -1491,13 +1333,14 @@ def admin_file_stats(authorization: str | None = Header(default=None)):
     require_super_admin(user)
     svc = org_service()
     names = _org_name_map(svc)
+    all_records = svc.list_all_uploads()
     try:
-        indexed = _openrag_files()
+        indexed = get_engine().index_meta(all_records)
     except Exception:
         indexed = {}
 
     def entry(rec):
-        meta = indexed.get(openrag_filename(rec.get("docId", ""), rec.get("filename", "")), {})
+        meta = indexed.get(rec.get("docId", ""), {})
         up_ts = _parse_ts(rec.get("uploadedAt"))
         idx_ts = _parse_ts(meta.get("indexed_time"))
         ingest = None
@@ -1513,7 +1356,7 @@ def admin_file_stats(authorization: str | None = Header(default=None)):
         }
 
     groups_global, groups_orgs, groups_personal = [], {}, {}
-    for rec in svc.list_all_uploads():
+    for rec in all_records:
         e = entry(rec)
         org_id = rec.get("orgId")
         if org_id == PLATFORM_ORG_ID:

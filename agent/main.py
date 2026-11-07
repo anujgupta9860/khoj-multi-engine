@@ -45,6 +45,11 @@ def _strip_citations(text: str) -> str:
 
 import requests
 from fastapi import FastAPI, Header, Request
+
+try:
+    from . import engines
+except ImportError:  # top-level module in the agent Docker image
+    import engines
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.auth import verify_token
@@ -88,16 +93,11 @@ def require_user(authorization: str | None) -> dict:
     return user
 
 
-def _openrag_chunks(query: str, filenames: list, limit: int = 30) -> list:
-    resp = requests.post(
-        f"{OPENRAG_URL}/search",
-        json={"query": query, "filters": {"filename": filenames}, "limit": limit},
-        timeout=30,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Search backend: {resp.text[:200]}")
-    data = resp.json()
-    return data if isinstance(data, list) else data.get("results", [])
+def _engine_search(query: str, corpus: dict, limit: int = 30) -> list:
+    """One engine chunk search over ONLY the given corpus map,
+    normalized to {"key", "text", "score"} chunks (agent/engines.py).
+    The engine is chosen by KHOJ_ENGINE, matching the web service."""
+    return engines.search_chunks(query, corpus, limit=limit)
 
 
 def rewrite_query(question: str, history: list) -> str | None:
@@ -142,10 +142,10 @@ def rewrite_query(question: str, history: list) -> str | None:
 
 
 def _corpus_names(user: dict, org_id: str | None) -> dict:
-    """OpenRAG filename -> (display title, storage scope prefix, docId)
-    for every document the caller may search: their scope's uploads
-    plus the global corpus. This map IS the corpus boundary - retrieval
-    code post-filters every chunk against it.
+    """Engine document key -> {title, prefix, docId, scopeKey,
+    engineRef} for every document the caller may search: their
+    scope's uploads plus the global corpus. This map IS the corpus
+    boundary - retrieval code post-filters every chunk against it.
 
     The list comes from the web service (GET /api/agent/corpus), which
     enforces membership/approval itself; an authorization failure there
@@ -170,10 +170,15 @@ def _corpus_names(user: dict, org_id: str | None) -> dict:
         return {}
     by_name = {}
     for f in resp.json().get("files", []):
-        if f.get("openragName") and f.get("docId"):
-            by_name[f["openragName"]] = (
-                f.get("filename", ""), f.get("scope", ""), f["docId"],
-            )
+        key = f.get("engineKey") or f.get("openragName")
+        if key and f.get("docId"):
+            by_name[key] = {
+                "title": f.get("filename", ""),
+                "prefix": f.get("scope", ""),
+                "docId": f["docId"],
+                "scopeKey": f.get("scopeKey", ""),
+                "engineRef": f.get("engineRef", ""),
+            }
     return by_name
 
 
@@ -186,14 +191,15 @@ def _tool_search(query: str, user: dict, org_id: str | None, full_text_seen: set
     if not by_name:
         return "No documents are available to search.", []
     grouped: dict = {}
-    for chunk in _openrag_chunks(query, sorted(by_name), limit=30):
-        name = chunk.get("filename", "")
+    for chunk in _engine_search(query, by_name, limit=30):
+        name = chunk.get("key", "")
         if name not in by_name:
             continue  # another corpus's document - never used
         text = clean_snippet(chunk.get("text", ""))
         if not text:
             continue
-        title, prefix, doc_id = by_name[name]
+        info = by_name[name]
+        title, prefix, doc_id = info["title"], info["prefix"], info["docId"]
         entry = grouped.setdefault(
             name, {"title": title, "prefix": prefix, "docId": doc_id,
                    "snips": [], "score": 0}
@@ -270,10 +276,10 @@ def search_snippets(queries: list, user: dict, org_id: str | None, page_size: in
     by_name = _corpus_names(user, org_id)
     if not by_name:
         return []
-    merged: dict = {}  # (openrag name, text head) -> (score, name, text)
+    merged: dict = {}  # (engine key, text head) -> (score, key, text)
     for query in queries:
-        for chunk in _openrag_chunks(query, sorted(by_name)):
-            name = chunk.get("filename", "")
+        for chunk in _engine_search(query, by_name):
+            name = chunk.get("key", "")
             if name not in by_name:
                 continue  # another corpus's document - never used for grounding
             text = clean_snippet(chunk.get("text", ""))
@@ -285,7 +291,8 @@ def search_snippets(queries: list, user: dict, org_id: str | None, page_size: in
                 merged[key] = (score, name, text)
     grouped: dict[str, dict] = {}
     for score, name, text in sorted(merged.values(), key=lambda v: -v[0]):
-        title, prefix, doc_id = by_name[name]
+        info = by_name[name]
+        title, prefix, doc_id = info["title"], info["prefix"], info["docId"]
         entry = grouped.setdefault(
             name, {"title": title, "snippets": [], "scope": prefix,
                    "docId": doc_id, "_score": score}
