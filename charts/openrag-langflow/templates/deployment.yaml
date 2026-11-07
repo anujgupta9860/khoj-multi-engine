@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: langflow }
+  template:
+    metadata:
+      labels: { app: langflow }
+    spec:
+      # Kubernetes would otherwise inject LANGFLOW_PORT=tcp://<svc-ip>:7860
+      # for the Service named "langflow", and Langflow's Settings parses
+      # LANGFLOW_PORT as its integer listen port -> pydantic ValidationError
+      # crash loop (seen on first GKE install, Nov 3 2026).
+      enableServiceLinks: false
+      containers:
+        - name: langflow
+          image: {{ .Values.image }}
+          ports: [{ containerPort: 7860 }]
+          env:
+            - { name: LANGFLOW_SUPERUSER, value: {{ .Values.superuser }} }
+            - name: LANGFLOW_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: langflow-secrets, key: LANGFLOW_SUPERUSER_PASSWORD }
+            - { name: LANGFLOW_ALLOW_CUSTOM_COMPONENTS, value: "true" }
+            # Keep Langflow's DB (flows, global variables) on the PVC.
+            # Without this the DB lives in the container filesystem and
+            # every pod restart wipes the flows OpenRAG depends on
+            # (bit us 2026-11-05: a restart erased the ingest flow).
+            - { name: LANGFLOW_CONFIG_DIR, value: /app/langflow-data }
+            - { name: DOCLING_SERVE_URL, value: {{ .Values.doclingUrl }} }
+            # Upstream compose parity: flows running inside Langflow
+            # reach OpenSearch + the embedding provider through
+            # env-sourced global variables.
+            - { name: OPENSEARCH_HOST, value: "opensearch" }
+            - { name: OPENSEARCH_PORT, value: "9200" }
+            - { name: OPENSEARCH_URL, value: "https://opensearch:9200" }
+            - { name: OPENSEARCH_INDEX_NAME, value: "documents" }
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: langflow-secrets, key: OPENSEARCH_PASSWORD }
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef: { name: langflow-secrets, key: OPENAI_API_KEY }
+            - { name: SELECTED_EMBEDDING_MODEL, value: {{ .Values.embeddingModel | default "gemini-embedding-001" }} }
+            - { name: SELECTED_EMBEDDING_PROVIDER, value: {{ .Values.embeddingProvider | default "gemini" }} }
+            - { name: LANGFLOW_VARIABLES_TO_GET_FROM_ENVIRONMENT, value: "JWT,OPENRAG-QUERY-FILTER,OPENSEARCH_PASSWORD,OPENSEARCH_URL,DOCLING_SERVE_URL,OWNER,OWNER_NAME,OWNER_EMAIL,CONNECTOR_TYPE,DOCUMENT_ID,SOURCE_URL,ALLOWED_USERS,ALLOWED_GROUPS,FILENAME,MIMETYPE,FILESIZE,SELECTED_EMBEDDING_MODEL,SELECTED_EMBEDDING_PROVIDER,OPENAI_API_KEY,ANTHROPIC_API_KEY,WATSONX_API_KEY,WATSONX_URL,WATSONX_PROJECT_ID,OLLAMA_BASE_URL,OPENSEARCH_INDEX_NAME" }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - { name: data, mountPath: {{ .Values.persistence.mountPath }} }
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: langflow-data }
+      {{- end }}

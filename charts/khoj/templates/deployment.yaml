@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: khoj
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate   # the data PVC is RWO - never run two pods at once
+  selector:
+    matchLabels:
+      app: khoj
+  template:
+    metadata:
+      labels:
+        app: khoj
+    spec:
+      serviceAccountName: khoj
+      containers:
+        - name: khoj
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: KHOJ_DATA_DIR
+              value: {{ .Values.data.dir | quote }}
+            - name: KHOJ_STORAGE
+              value: {{ .Values.storage.backend | quote }}
+            {{- if .Values.storage.bucket }}
+            - name: KHOJ_BUCKET
+              value: {{ .Values.storage.bucket | quote }}
+            {{- end }}
+            - name: KHOJ_SUPER_ADMIN_EMAIL
+              value: {{ .Values.auth.superAdminEmail | quote }}
+            - name: KHOJ_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.secretName }}
+                  key: KHOJ_AUTH_SECRET
+                  # Optional: without it the app generates one into the
+                  # data dir - but then it will NOT match the agent's
+                  # secret, so set the GSM secret for real deployments.
+                  optional: true
+            - name: OPENRAG_URL
+              value: {{ .Values.openrag.url }}
+            - name: KHOJ_AGENT_URL
+              value: {{ .Values.agent.url }}
+            - name: JIRA_BASE_URL
+              value: {{ .Values.jira.baseUrl | quote }}
+            - name: JIRA_EMAIL
+              value: {{ .Values.jira.email | quote }}
+            - name: JIRA_PROJECT_KEY
+              value: {{ .Values.jira.projectKey | quote }}
+            - name: JIRA_ISSUE_TYPE
+              value: {{ .Values.jira.issueType | quote }}
+            - name: JIRA_COMPONENTS
+              value: {{ .Values.jira.components | quote }}
+            - name: JIRA_AFFECTS_VERSIONS
+              value: {{ .Values.jira.affectsVersions | quote }}
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.jira.secretName }}
+                  key: JIRA_API_TOKEN
+                  # Optional: the pod must start before the GSM secret
+                  # exists; the feature simply stays disabled until then.
+                  optional: true
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.data.dir }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /api/config
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: khoj-data

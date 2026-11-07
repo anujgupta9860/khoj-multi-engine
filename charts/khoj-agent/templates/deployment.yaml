@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: khoj-agent
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: khoj-agent
+  template:
+    metadata:
+      labels:
+        app: khoj-agent
+    spec:
+      serviceAccountName: khoj-agent
+      containers:
+        - name: khoj-agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: KHOJ_WEB_URL
+              value: {{ .Values.web.url }}
+            - name: KHOJ_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.secretName }}
+                  key: KHOJ_AUTH_SECRET
+                  optional: true
+            - name: OPENRAG_URL
+              value: {{ .Values.openrag.url }}
+            - name: OPENAI_MODEL
+              value: {{ .Values.openai.model }}
+            - name: OPENAI_BASE_URL
+              value: {{ .Values.openai.baseUrl | quote }}
+            {{- if .Values.openai.secretName }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openai.secretName }}
+                  key: OPENAI_API_KEY
+                  optional: true
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10

@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+.env.local
+env.docker
+env.local
+.venv-local/
+.local-run/
+corp-ca.pem

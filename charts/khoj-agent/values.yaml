@@ -1,0 +1,52 @@
+image:
+  repository: us-central1-docker.pkg.dev/innovation-lab-2026/khoj/khoj-agent
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# The web service owns accounts, corpora and stored originals. The
+# agent asks it (with the caller's token) for the authorized corpus
+# and document text - it holds no database or storage credentials.
+web:
+  url: "http://khoj"
+
+# Shared auth secret with the web service: both verify the same
+# app-issued tokens. Value comes from GSM via ExternalSecret.
+auth:
+  secretName: "khoj-agent-auth"
+  externalSecret:
+    enabled: true
+    gsmKey: "khoj-auth-secret"
+
+# OpenRAG: the single retrieval engine (in-cluster service)
+openrag:
+  url: "http://openrag-backend:8000"
+
+openai:
+  # Answer model. The API key arrives via External Secrets Operator
+  # from Google Secret Manager (the same key OpenRAG uses) into the
+  # k8s Secret named here -- never in values/git. When the secret is
+  # absent the agent answers extractively from the source files.
+  # GKE runs on Gemini via Google's OpenAI-compatible endpoint: the
+  # GSM secret holds the Gemini API key, baseUrl points at the Gemini
+  # compat surface, and the model is a Gemini model.
+  model: "gemini-3.5-flash"
+  # Optional custom OpenAI-compatible base URL (blank = api.openai.com).
+  baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  secretName: "khoj-agent-openai"
+  externalSecret:
+    enabled: true
+    gsmKey: "openrag-openai-api-key"
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"

@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch
+spec:
+  serviceName: opensearch
+  replicas: 1
+  selector:
+    matchLabels: { app: opensearch }
+  template:
+    metadata:
+      labels: { app: opensearch }
+    spec:
+      # Kubernetes would otherwise inject OPENRAG_BACKEND_PORT=
+      # tcp://<cluster-ip>:8000 for the Service named "openrag-backend",
+      # and this image's setup-security.sh builds the OIDC discovery URL
+      # from that variable - producing the malformed
+      # http://openrag-backend:tcp://<ip>:8000/.well-known/... in the
+      # applied security config, which made OpenSearch unable to fetch
+      # the backend's JWKS and reject every JWT search with 401
+      # (found live, Nov 3 2026; same bug class as the langflow port).
+      enableServiceLinks: false
+      # Fresh PVCs arrive root-owned; OpenSearch (uid 1000) then cannot
+      # write its data dir (AccessDeniedException on .../data/nodes, the
+      # JVM stays up but never listens - exactly the VM deploy's chown
+      # lesson, GKE edition, Nov 3 2026). fsGroup covers new volumes.
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: opensearch
+          image: {{ .Values.image }}
+          # Upstream compose command, verbatim semantics: fix data-dir
+          # ownership, start OpenSearch, apply the image's security
+          # setup in the background. (Our earlier initContainer chown is
+          # subsumed by the sudo chown here.)
+          command: ["bash", "-c", "sudo chown -R opensearch:opensearch /usr/share/opensearch/data || true; /usr/share/opensearch/opensearch-docker-entrypoint.sh opensearch & sleep 10 && /usr/share/opensearch/setup-security.sh & wait"]
+          ports: [{ containerPort: 9200 }]
+          env:
+            - { name: discovery.type, value: single-node }
+            - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: opensearch-secrets, key: OPENSEARCH_INITIAL_ADMIN_PASSWORD }
+            - { name: OPENSEARCH_JAVA_OPTS, value: "-Xms1g -Xmx1g" }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /usr/share/opensearch/data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: {{ .Values.storage }} } }

@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Khoj.ai — search the documents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    color-scheme: light;
+    --accent: #09090b;
+    --bg: #ffffff;
+    --fg: #09090b;
+    --muted: #f4f4f5;
+    --muted-fg: #71717a;
+    --border: #ececef;
+    --input: #e4e4e7;
+    --sidebar: #fafafa;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; background: var(--bg); color: var(--fg); font-size: 15px; -webkit-font-smoothing: antialiased; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted-fg); font-size: 14px; }
+  .err { color: #dc2626; min-height: 20px; font-size: 14px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  a { color: var(--fg); }
+
+  /* ---------- App shell: sidebar + content (OpenRAG layout) ---------- */
+  #searchview { display: flex; min-height: 100dvh; }
+  aside#sidebar { width: 264px; flex: 0 0 264px; background: var(--sidebar); border-right: 1px solid var(--border); padding: 18px 14px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100dvh; }
+  .logo { font-size: 21px; font-weight: 800; letter-spacing: -.02em; padding: 2px 8px 14px; }
+  .logo span { color: var(--muted-fg); font-weight: 600; }
+  .sidelabel { font-size: 12px; font-weight: 600; color: var(--muted-fg); text-transform: uppercase; letter-spacing: .06em; padding: 10px 8px 6px; }
+  #corpus { width: 100%; padding: 9px 10px; border: 1px solid var(--input); border-radius: 8px; background: #fff; font-size: 14px; margin-bottom: 8px; }
+  .navbtn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-left: 3px solid transparent; border-radius: 8px; background: transparent; color: #3f3f46; font-size: 14.5px; font-weight: 500; cursor: pointer; box-shadow: none; text-align: left; }
+  .navbtn:hover { background: #f0f0f2; transform: none; }
+  .navbtn.active { background: var(--muted); color: var(--fg); border-left-color: var(--fg); }
+  .navbtn .ic { width: 17px; text-align: center; opacity: .75; }
+  #sidebar .spacer { flex: 1; }
+  #userbox { border-top: 1px solid var(--border); padding-top: 12px; flex-direction: column; align-items: stretch; gap: 8px; }
+  #useremail { font-size: 13px; color: var(--muted-fg); padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  main { flex: 1; min-width: 0; padding: 34px 40px 90px; }
+  .view { max-width: 880px; margin: 0 auto; }
+  .view h2 { font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 6px; }
+  .view .sub { color: var(--muted-fg); margin: 0 0 22px; font-size: 14.5px; }
+
+  /* ---------- Cards, forms, buttons ---------- */
+  .card { border: 1px solid var(--border); border-radius: 14px; padding: 22px; background: #fff; box-shadow: 0 1px 2px rgba(16,16,20,.04); }
+  .card h3 { margin: 0 0 8px; font-size: 16.5px; font-weight: 600; letter-spacing: -.01em; }
+  input[type=email], input[type=password], input[type=text] { width: 100%; padding: 10px 12px; margin: 6px 0 12px; border-radius: 8px; border: 1px solid var(--input); font-size: 15px; background: #fff; color: var(--fg); font-family: inherit; }
+  input:focus, select:focus { outline: none; border-color: var(--fg); box-shadow: 0 0 0 3px rgba(9,9,11,.08); }
+  select { background: #fff; color: var(--fg); font-family: inherit; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font-size: 14.5px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background .12s ease, transform .05s ease; }
+  button:hover { filter: brightness(1.25); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .55; cursor: default; }
+  button.secondary { background: #fff; color: var(--fg); border: 1px solid var(--input); box-shadow: none; }
+  button.secondary:hover { background: var(--muted); filter: none; }
+
+  /* ---------- Search ---------- */
+  .searchbox { display: flex; gap: 8px; align-items: center; border: 1px solid var(--input); border-radius: 14px; padding: 6px 6px 6px 16px; background: #fff; box-shadow: 0 1px 3px rgba(16,16,20,.05); }
+  .searchbox:focus-within { border-color: var(--fg); box-shadow: 0 0 0 3px rgba(9,9,11,.07); }
+  .searchbox input { border: 0; margin: 0; padding: 10px 0; font-size: 16.5px; box-shadow: none; }
+  .searchbox input:focus { border: 0; box-shadow: none; }
+  .searchbox button { border-radius: 10px; padding: 10px 20px; }
+  .summary { background: var(--muted); border-radius: 12px; padding: 16px 18px; margin: 20px 0 4px; white-space: pre-wrap; font-size: 15px; line-height: 1.55; }
+  .result { padding: 18px 2px; border-bottom: 1px solid var(--border); }
+  .result h3 { margin: 0 0 6px; font-size: 16.5px; font-weight: 600; }
+  .result h3 a { color: var(--fg); text-decoration: none; }
+  .result h3 a:hover { text-decoration: underline; }
+  .result div { line-height: 1.55; margin: 3px 0; }
+
+  /* ---------- Chips, tables, tiles ---------- */
+  .chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; vertical-align: 1px; }
+  .chip.ok { background: #d1fae5; color: #047857; }
+  .chip.wait { background: #fef3c7; color: #b45309; }
+  .chip.bad { background: #fee2e2; color: #b91c1c; }
+  table.matrix { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.matrix th { text-align: left; color: var(--muted-fg); font-weight: 500; font-size: 12.5px; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.matrix td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .grouph { font-weight: 600; font-size: 15px; margin: 20px 0 4px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 8px; }
+  .tile { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: #fff; }
+  .tile .n { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+  .tile .l { color: var(--muted-fg); font-size: 12.5px; margin-top: 2px; }
+  .qa { padding: 16px 0; border-bottom: 1px solid var(--border); }
+  .qa .q { font-weight: 600; font-size: 15.5px; }
+  .qa .meta { color: var(--muted-fg); font-size: 13px; margin: 4px 0 8px; }
+  .qa .a { background: var(--muted); border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; line-height: 1.55; font-size: 14.5px; }
+  pre.code { overflow: auto; background: var(--muted); padding: 14px; border-radius: 10px; font-size: 13px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .docrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--border); color: var(--fg); }
+  .docactions { display: inline-flex; align-items: center; gap: 8px; }
+  .docdel { background: none; border: 1px solid var(--border); color: var(--muted-fg); border-radius: 8px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; }
+  .docdel:hover { color: #b91c1c; border-color: #b91c1c; }
+  /* ---------- Auth ---------- */
+  #authview { max-width: 400px; margin: 9vh auto 0; }
+  #authview .logo { text-align: center; padding-bottom: 6px; }
+
+  /* ---------- Chat (slide-over, OpenRAG chat styling) ---------- */
+  #chatfab { position: fixed; right: 22px; bottom: 22px; z-index: 40; width: 54px; height: 54px; border-radius: 50%; background: var(--fg); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 26px -8px rgba(9,9,11,.45); padding: 0; }
+  #chatfab svg { width: 24px; height: 24px; }
+  #chatpanel { position: fixed; top: 0; right: 0; bottom: 0; left: 264px; z-index: 41; height: 100dvh; display: flex; flex-direction: column; background: #fff; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .18s ease, visibility .18s; }
+  #chatpanel.open { opacity: 1; visibility: visible; pointer-events: auto; }
+  #docfile { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  #chathead { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 14px 18px 10px; }
+  #chathead .t { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  #chatclose { background: transparent; color: var(--muted-fg); border: 0; box-shadow: none; font-size: 17px; padding: 2px 8px; }
+  #chatclose:hover { background: var(--muted); filter: none; }
+  /* ChatGPT-style conversation: a centered 768px column (via padding),
+     assistant answers as plain full-width text, user turns as soft
+     gray pills on the right. */
+  #chatlog { flex: 1; overflow-y: auto; padding: 22px max(18px, calc(50% - 384px)) 10px; display: flex; flex-direction: column; gap: 26px; }
+  .msg { font-size: 15px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.you { align-self: flex-end; max-width: 78%; background: #f4f4f4; color: var(--fg); padding: 10px 18px; border-radius: 24px; }
+  .msg.bot { align-self: stretch; background: transparent; border: 0; padding: 0; font-size: 16px; }
+  .msg.thinking { opacity: .55; font-style: italic; }
+  .msg.md { white-space: normal; }
+  .msg.md p { margin: 0 0 8px; }
+  .msg.md p:last-child { margin-bottom: 0; }
+  .msg.md ul, .msg.md ol { margin: 2px 0 8px; padding-left: 20px; }
+  .msg.md li { margin: 2px 0; }
+  .msg.md .mdh { font-weight: 650; margin: 10px 0 4px; }
+  .msg.md code { background: var(--muted); border-radius: 5px; padding: 1px 5px; font-size: 13px; }
+  .msg-actions { align-self: flex-start; margin-top: -14px; }
+  .ticketbtn { font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--fg); cursor: pointer; }
+  .ticketbtn:hover:not(:disabled) { border-color: var(--accent); }
+  .ticketbtn:disabled { opacity: .55; cursor: default; }
+  .jiraform { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .jiraform label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  .jiraform select, .jiraform input { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+  .msg-actions a { font-size: 12.5px; color: var(--accent); text-decoration: none; font-weight: 600; }
+  #chatfoot { padding: 8px max(18px, calc(50% - 384px)) 14px; background: #fff; }
+  #chatfoot .row { align-items: center; border: 1px solid #d9d9d9; border-radius: 28px; padding: 5px 5px 5px 18px; background: #fff; box-shadow: 0 6px 20px -8px rgba(0,0,0,.12); }
+  #chatfoot .row:focus-within { border-color: #bdbdbd; box-shadow: 0 6px 20px -8px rgba(0,0,0,.16); }
+  #chatinput { margin: 0 !important; flex: 1; border: 0; padding: 8px 0; font-size: 16px; }
+  #chatinput:focus { border: 0; box-shadow: none; }
+  #chatsend { width: 36px; height: 36px; min-width: 36px; border-radius: 50%; background: #0d0d0d; color: #fff; display: flex; align-items: center; justify-content: center; padding: 0; }
+  #chatsend svg { width: 18px; height: 18px; }
+  #chatfoot .muted, #chatfoot .err { max-width: 768px; margin-left: auto; margin-right: auto; }
+
+  @media (max-width: 860px) {
+    #searchview { flex-direction: column; }
+    aside#sidebar { width: auto; flex: none; height: auto; position: static; flex-direction: row; flex-wrap: wrap; align-items: center; }
+    #sidebar .spacer { display: none; }
+    #userbox { border-top: 0; flex-direction: row; align-items: center; margin-left: auto; }
+    main { padding: 22px 16px 80px; }
+    #chatpanel { left: 0; }
+  }
+</style>
+</head>
+<body>
+<!-- Auth -->
+<section id="authview" class="card hidden">
+  <div class="logo">Khoj<span>.ai</span></div>
+  <div id="orgbrand" class="hidden" style="margin-bottom:10px; text-align:center">
+    <img id="orglogo" alt="" style="max-height:44px; display:none; margin:0 auto" />
+    <div id="orgtagline" class="muted"></div>
+  </div>
+  <h2 id="authtitle" style="margin:6px 0 4px; font-size:20px">Sign in</h2>
+  <p class="muted" style="margin-top:0">For you: sign up directly and search your own documents. For your business: create an account, then enroll your org and invite your team.</p>
+  <input id="email" type="email" placeholder="Email" autocomplete="email" />
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+  <div class="err" id="autherr"></div>
+  <div class="row">
+    <button id="authsubmit">Sign in</button>
+    <button id="authtoggle" class="secondary">New here? Create account</button>
+  </div>
+</section>
+
+<!-- App shell -->
+<div id="searchview" class="hidden">
+  <aside id="sidebar">
+    <div class="logo">Khoj<span>.ai</span></div>
+    <div class="sidelabel">Knowledge source</div>
+    <select id="corpus">
+      <option value="">My documents</option>
+    </select>
+    <div class="sidelabel">Workspace</div>
+    <button class="navbtn active" data-view="search"><span class="ic">⌕</span>Search</button>
+    <button class="navbtn" id="navchat"><span class="ic">💬</span>Chat</button>
+    <button class="navbtn" data-view="documents"><span class="ic">🗂</span>Documents</button>
+    <button class="navbtn" data-view="businesses"><span class="ic">🏢</span>Businesses</button>
+    <button class="navbtn" data-view="developers"><span class="ic">⚡</span>Developers</button>
+    <button class="navbtn hidden" id="navadmin" data-view="admin"><span class="ic">🛡</span>Super Admin</button>
+    <div class="spacer"></div>
+    <div id="userbox" class="hidden">
+      <span id="useremail"></span>
+      <button id="signout" class="secondary">Sign out</button>
+    </div>
+  </aside>
+  <main>
+    <!-- Search -->
+    <section class="view" id="view-search">
+      <div id="invitesbox" class="card hidden" style="margin-bottom:16px">
+        <h3>You're invited</h3>
+        <div id="inviteslist"></div>
+      </div>
+      <h2>Search</h2>
+      <p class="sub">Ask the documents — answers come only from the corpus selected on the left.</p>
+      <div class="searchbox">
+        <input id="q" type="text" placeholder="Search the documents…" />
+        <button id="go">Khoj</button>
+      </div>
+      <div class="err" id="searcherr"></div>
+      <div id="summary" class="summary hidden"></div>
+      <div id="results"></div>
+    </section>
+
+    <!-- Documents -->
+    <section class="view hidden" id="view-documents">
+      <h2>Documents</h2>
+      <p class="sub">Uploads go to the corpus selected on the left. Personal uploads are private to you; business uploads are shared with that business's members (owners and admins upload).</p>
+      <div id="uploadbox" class="card">
+        <h3>Upload a document</h3>
+        <div class="row">
+          <button id="pickfile" class="secondary" type="button">Choose file</button>
+          <span id="pickedname" class="muted">No file chosen</span>
+          <input id="docfile" type="file" />
+          <button id="upload">Upload</button>
+        </div>
+        <div id="uploadstatus" class="muted" style="margin-top:8px"></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h3>Your documents</h3>
+        <div id="doclist" class="muted" style="margin-top:6px"></div>
+      </div>
+    </section>
+
+    <!-- Businesses -->
+    <section class="view hidden" id="view-businesses">
+      <h2>Businesses</h2>
+      <p class="sub">A business has its own shared corpus: owners and admins upload documents, every member can search them.</p>
+      <div id="bizbox" class="card">
+        <div class="row">
+          <input id="bizname" type="text" placeholder="New business name" style="margin:0" />
+          <button id="createbiz">Create</button>
+        </div>
+        <div id="bizlist" class="muted" style="margin-top:12px"></div>
+        <div id="memberbox" class="hidden" style="margin-top:16px; border-top:1px solid var(--border); padding-top:14px">
+          <div class="muted" id="membertitle"></div>
+          <div id="memberlist" class="muted" style="margin:6px 0"></div>
+          <div class="row">
+            <input id="memberemail" type="email" placeholder="Existing member's account email" style="margin:0" />
+            <select id="memberrole" style="padding:10px; border-radius:8px; border:1px solid var(--input)">
+              <option value="member">member</option>
+              <option value="admin">admin</option>
+            </select>
+            <button id="addmember" class="secondary">Add member</button>
+          </div>
+          <div id="memberstatus" class="muted"></div>
+
+          <h4 style="margin:18px 0 6px">Invite employees</h4>
+          <div class="row">
+            <input id="inviteemail" type="email" placeholder="Employee email" style="margin:0" />
+            <select id="inviterole" style="padding:10px; border-radius:8px; border:1px solid var(--input)">
+              <option value="member">member</option>
+              <option value="admin">admin</option>
+            </select>
+            <button id="sendinvite" class="secondary">Create invite</button>
+          </div>
+          <div id="invitestatus" class="muted"></div>
+          <div id="pendinginvites" class="muted" style="margin-top:6px"></div>
+
+          <h4 style="margin:18px 0 6px">Branding</h4>
+          <input id="bname" type="text" placeholder="Display name (e.g. Acme Docs)" />
+          <input id="blogo" type="text" placeholder="Logo URL (https://…)" />
+          <input id="btag" type="text" placeholder="Tagline" />
+          <div class="row">
+            <label class="muted">Primary color <input id="bcolor" type="color" value="#4f46e5" /></label>
+            <button id="savebranding" class="secondary">Save branding</button>
+          </div>
+          <div id="brandstatus" class="muted"></div>
+          <div id="brandlink" class="muted" style="margin-top:6px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Developers / MCP -->
+    <section class="view hidden" id="view-developers">
+      <h2>Developers</h2>
+      <p class="sub">Use Khoj inside your own agent over MCP.</p>
+      <div id="mcpbox" class="card">
+        <h3>Khoj as an MCP server</h3>
+        <p class="muted">Add Khoj as an MCP server in Claude, Cursor, or any MCP client and your agent can search your documents. Paste this config:</p>
+        <pre id="mcpconfig" class="code"></pre>
+        <button id="copymcp" class="secondary">Copy my MCP config</button>
+        <p class="muted">The token is your sign-in token and lasts 7 days — come back here for a fresh config when it expires.</p>
+      </div>
+    </section>
+
+    <!-- Super admin -->
+    <section class="view hidden" id="view-admin">
+      <div id="superbox" class="hidden">
+        <h2>Super Admin</h2>
+        <p class="sub">The whole platform: every business, every question and answer, every file.</p>
+        <div id="supermetrics"></div>
+        <div class="card" style="margin-top:16px">
+          <h3>Business signup requests</h3>
+          <div id="orgrequests" class="muted"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h3>Questions &amp; answers — all users</h3>
+          <div id="adminconvs"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h3>Files — ingestion time &amp; chunks</h3>
+          <div id="adminfiles"></div>
+        </div>
+        <button id="refreshadmin" class="secondary" style="margin-top:14px">Refresh</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+
+// Khoj built-in auth: the app issues its own token at login/register;
+// it lives in localStorage and rides as a Bearer header on API calls.
+// Some in-app webviews block Web Storage; storage failures must never
+// blank the page, so every access goes through these fail-safe helpers.
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  remove(k) { try { localStorage.removeItem(k); } catch (e) {} },
+  sget(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+  sset(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} },
+  sremove(k) { try { sessionStorage.removeItem(k); } catch (e) {} },
+};
+let _token = store.get("khoj_token") || null;
+let _email = store.get("khoj_email") || "";
+
+async function token() { return _token; }
+
+// Branded sign-in (/?org=<slug>) + invite links (/?invite=<token>)
+{
+  const params = new URLSearchParams(location.search);
+  const invite = params.get("invite");
+  if (invite) store.sset("khoj_invite", invite);
+  const slug = params.get("org");
+  if (slug) {
+    const r = await fetch("/api/public/org/" + encodeURIComponent(slug));
+    if (r.ok) {
+      const org = await r.json();
+      const b = org.branding || {};
+      document.title = (b.displayName || org.name) + " — sign in";
+      if (b.primaryColor) document.documentElement.style.setProperty("--accent", b.primaryColor);
+      if (b.logoUrl) { $("orglogo").src = b.logoUrl; $("orglogo").style.display = "block"; }
+      $("orgtagline").textContent = b.tagline || ("Sign in to " + (b.displayName || org.name));
+      $("orgbrand").classList.remove("hidden");
+      document.querySelector("#sidebar .logo").innerHTML = b.displayName || org.name;
+    }
+  }
+}
+let signupMode = false;
+
+$("authtoggle").onclick = () => {
+  signupMode = !signupMode;
+  $("authtitle").textContent = signupMode ? "Create account" : "Sign in";
+  $("authsubmit").textContent = signupMode ? "Create account" : "Sign in";
+  $("authtoggle").textContent = signupMode ? "Have an account? Sign in" : "New here? Create account";
+  $("autherr").textContent = "";
+};
+$("authsubmit").onclick = async () => {
+  $("autherr").textContent = "";
+  try {
+    const resp = await fetch(signupMode ? "/api/auth/register" : "/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: $("email").value.trim(), password: $("password").value }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || ("Sign-in failed (" + resp.status + ")"));
+    _token = data.token; _email = data.email || $("email").value.trim();
+    store.set("khoj_token", _token);
+    store.set("khoj_email", _email);
+    enterApp();
+  } catch (e) { $("autherr").textContent = e.message; }
+};
+$("signout").onclick = () => {
+  _token = null; _email = "";
+  store.remove("khoj_token");
+  store.remove("khoj_email");
+  exitApp();
+};
+
+function exitApp() {
+  $("authview").classList.remove("hidden");
+  $("searchview").classList.add("hidden");
+  $("userbox").classList.add("hidden");
+  $("chatfab").classList.add("hidden");
+  $("chatpanel").classList.remove("open");
+}
+
+async function enterApp() {
+  if (!_token) { exitApp(); return; }
+  $("authview").classList.add("hidden");
+  $("searchview").classList.remove("hidden");
+  $("userbox").classList.remove("hidden");
+  $("chatfab").classList.remove("hidden");
+  $("useremail").textContent = _email;
+  renderMcpConfig();
+  await acceptStashedInvite();
+  await loadOrgs();
+  loadDocs();
+  loadInvitesInbox();
+  loadMe();
+}
+
+if (_token) enterApp(); else exitApp();
+
+async function loadMe() {
+  const resp = await api("/api/me");
+  if (!resp.ok) return;
+  const me = await resp.json();
+  $("superbox").classList.toggle("hidden", !me.superAdmin);
+  $("navadmin").classList.toggle("hidden", !me.superAdmin);
+  if (me.superAdmin) loadAdmin();
+}
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtMs = (ms) => ms == null ? "" : (ms >= 1000 ? (Math.round(ms / 100) / 10) + "s" : ms + "ms");
+const fmtT = (ts) => ts ? new Date(ts * 1000).toLocaleString() : "";
+
+async function loadAdmin() {
+  const [m, reqs, convs, stats] = await Promise.all([
+    api("/api/admin/metrics").then((r) => r.json()),
+    api("/api/admin/org-requests").then((r) => r.json()),
+    api("/api/admin/conversations?limit=60").then((r) => r.json()),
+    api("/api/admin/file-stats").then((r) => r.json()),
+  ]);
+  const s = m.searches || {};
+  const allFiles = [...(stats.global || []),
+    ...(stats.orgs || []).flatMap((g) => g.files),
+    ...(stats.personal || []).flatMap((g) => g.files)];
+  const chunks = allFiles.reduce((n, f) => n + (f.chunks || 0), 0);
+  const ing = allFiles.map((f) => f.ingestionSec).filter((v) => v != null);
+  const avgIng = ing.length ? (Math.round(ing.reduce((a, b) => a + b, 0) / ing.length * 10) / 10) + "s" : "—";
+  const chatLat = (convs.conversations || []).filter((c) => c.kind === "chat" && c.latencyMs != null);
+  const avgAns = chatLat.length ? fmtMs(Math.round(chatLat.reduce((a, c) => a + c.latencyMs, 0) / chatLat.length)) : "—";
+  const tile = (n, l) => `<div class="tile"><div class="n">${n}</div><div class="l">${l}</div></div>`;
+  $("supermetrics").innerHTML = `<div class="tiles">` +
+    tile(m.orgs.approved, "businesses approved") +
+    tile(m.orgs.pending, "pending requests") +
+    tile(s.total ?? 0, "searches (all time)") +
+    tile(allFiles.length, "files") +
+    tile(chunks, "chunks total") +
+    tile(avgIng, "avg ingestion time") +
+    tile(avgAns, "avg chat answer time") +
+    tile(s.zeroResultRate ?? "—", "zero-result rate") +
+    `</div>` +
+    `<div class="muted" style="margin-top:6px">${s.last7d ?? 0} searches in 7d · ${s.uploads ?? 0} uploads · ${s.uniqueUsers ?? 0} users · avg search latency ${s.avgLatencyMs ?? "—"} ms · via MCP ${s.viaMcp ?? 0} / web ${s.viaWeb ?? 0}</div>`;
+  const pending = reqs.orgs || [];
+  $("orgrequests").innerHTML = pending.length
+    ? pending.map((o) =>
+        `<div class="row" style="justify-content:space-between"><span><b>${esc(o.name)}</b> (/${esc(o.slug)})</span>` +
+        `<span><button class="secondary" data-approve="${o.id}">Approve</button> ` +
+        `<button class="secondary" data-reject="${o.id}">Reject</button></span></div>`).join("")
+    : "No pending requests.";
+  $("orgrequests").querySelectorAll("[data-approve],[data-reject]").forEach((btn) => {
+    btn.onclick = async () => {
+      const decision = btn.dataset.approve ? "approve" : "reject";
+      const id = btn.dataset.approve || btn.dataset.reject;
+      await api(`/api/admin/orgs/${id}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      loadAdmin();
+      loadOrgs();
+    };
+  });
+  $("adminconvs").innerHTML = (convs.conversations || []).map((c) => {
+    const ans = c.answer || "";
+    const shown = ans.length > 600 ? ans.slice(0, 600) + "…" : ans;
+    return `<div class="qa"><div class="q">${esc(c.question)}</div>` +
+      `<div class="meta">${fmtT(c.ts)} · ${esc(c.email || "")} · ${esc(c.orgName || "Personal")} · ${c.kind}` +
+      `${c.latencyMs != null ? " · answered in " + fmtMs(c.latencyMs) : ""}${c.results != null ? " · " + c.results + " sources" : ""}</div>` +
+      (ans ? `<div class="a">${esc(shown)}</div>` : `<div class="a" style="color:var(--muted-fg)">No answer recorded.</div>`) +
+      `</div>`;
+  }).join("") || `<p class="muted">No conversations yet.</p>`;
+  const frow = (f) => `<tr><td>${esc(f.filename)}</td><td>${f.chunks ?? "—"}</td><td>${f.ingestionSec != null ? f.ingestionSec + "s" : "—"}</td><td>${f.uploadedAt ? fmtT(f.uploadedAt) : ""}</td><td>${f.status === "ready" ? '<span class="chip ok">ready</span>' : '<span class="chip wait">indexing</span>'}</td></tr>`;
+  const ftable = (files) => files.length
+    ? `<table class="matrix"><tr><th>File</th><th>Chunks</th><th>Ingestion</th><th>Uploaded</th><th>Status</th></tr>${files.map(frow).join("")}</table>`
+    : `<p class="muted">No files.</p>`;
+  let fh = `<div class="grouph">🌐 Global corpus — visible to every user</div>` + ftable(stats.global || []);
+  for (const g of stats.orgs || []) fh += `<div class="grouph">🏢 ${esc(g.orgName)}</div>` + ftable(g.files);
+  for (const g of stats.personal || []) fh += `<div class="grouph">👤 Personal — ${esc(g.uid)}</div>` + ftable(g.files);
+  $("adminfiles").innerHTML = fh;
+}
+$("refreshadmin").onclick = loadAdmin;
+
+async function acceptStashedInvite() {
+  const raw = store.sget("khoj_invite");
+  if (!raw) return;
+  store.sremove("khoj_invite");
+  const [orgId, inviteId, secret] = raw.split(".");
+  if (!orgId || !inviteId) return;
+  const resp = await api("/api/invites/accept", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orgId, inviteId, secret: secret || null }),
+  });
+  if (resp.ok) {
+    const data = await resp.json();
+    $("invitesbox").classList.remove("hidden");
+    $("inviteslist").innerHTML = `<div>You joined <b>${data.joined.name}</b> as ${data.role}. Select it under "Searching:" to use its documents.</div>`;
+  }
+}
+
+async function loadInvitesInbox() {
+  const resp = await api("/api/invites");
+  if (!resp.ok) return;
+  const invites = (await resp.json()).invites || [];
+  if (!invites.length) { $("invitesbox").classList.add("hidden"); return; }
+  $("invitesbox").classList.remove("hidden");
+  $("inviteslist").innerHTML = invites.map((i) =>
+    `<div class="row" style="justify-content:space-between"><span><b>${i.orgName}</b> invited you as ${i.role}</span>` +
+    `<button class="secondary" data-accept="${i.orgId}:${i.inviteId}">Accept</button></div>`).join("");
+  $("inviteslist").querySelectorAll("[data-accept]").forEach((btn) => {
+    btn.onclick = async () => {
+      const [orgId, inviteId] = btn.dataset.accept.split(":");
+      const r = await api("/api/invites/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId, inviteId }),
+      });
+      if (r.ok) { await loadOrgs(); loadInvitesInbox(); }
+    };
+  });
+}
+
+let myOrgs = [];
+function currentOrg() { return $("corpus").value || null; }
+function selectedOrgObj() { return myOrgs.find((o) => o.id === currentOrg()) || null; }
+
+async function api(path, options = {}) {
+  const resp = await fetch(path, { ...options, headers: { Authorization: "Bearer " + (await token()), ...(options.headers || {}) } });
+  if (resp.status === 401 && _token) $("signout").click();  // expired token → back to sign-in
+  return resp;
+}
+
+async function loadOrgs() {
+  const resp = await api("/api/orgs");
+  if (!resp.ok) return;
+  myOrgs = (await resp.json()).orgs || [];
+  const sel = $("corpus");
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">My documents</option>` +
+    myOrgs.map((o) => `<option value="${o.id}">${o.name} (business)</option>`).join("");
+  sel.value = myOrgs.some((o) => o.id === keep) ? keep : "";
+  $("bizlist").innerHTML = myOrgs.length
+    ? myOrgs.map((o) => `<div>${o.name} — you are ${o.role}${o.status && o.status !== "approved" ? ` · <b>${o.status}</b>` : ""}</div>`).join("")
+    : "You don't belong to any business yet — create one above.";
+  refreshMemberBox();
+}
+
+function applyBranding(org) {
+  const b = (org && org.branding) || {};
+  const logo = document.querySelector("#sidebar .logo");
+  document.documentElement.style.setProperty("--accent", b.primaryColor || "#09090b");
+  logo.innerHTML = b.logoUrl
+    ? `<img src="${b.logoUrl}" alt="" style="max-height:34px; vertical-align:middle" />`
+    : (b.displayName ? `${b.displayName}` : `Khoj<span>.ai</span>`);
+}
+
+async function refreshMemberBox() {
+  const org = selectedOrgObj();
+  applyBranding(org);
+  const canManage = org && org.role === "admin";
+  $("memberbox").classList.toggle("hidden", !canManage);
+  if (!canManage) return;
+  $("membertitle").textContent = "Members of " + org.name + ":";
+  const resp = await api(`/api/orgs/${org.id}/members`);
+  if (resp.ok) {
+    const members = (await resp.json()).members || [];
+    const myEmail = $("useremail").textContent;
+    $("memberlist").innerHTML = members.map((m) =>
+      `<div>${m.email} — ${m.role}${m.email !== myEmail ? ` <a href="#" data-remove="${m.uid}">remove</a>` : ""}</div>`).join("");
+    $("memberlist").querySelectorAll("[data-remove]").forEach((a) => {
+      a.onclick = async (e) => {
+        e.preventDefault();
+        await api(`/api/orgs/${org.id}/members/${a.dataset.remove}`, { method: "DELETE" });
+        refreshMemberBox();
+      };
+    });
+  }
+  // Branding form prefill + branded sign-in link
+  const b = org.branding || {};
+  $("bname").value = b.displayName || "";
+  $("blogo").value = b.logoUrl || "";
+  $("btag").value = b.tagline || "";
+  if (b.primaryColor) $("bcolor").value = b.primaryColor;
+  $("brandlink").innerHTML = org.slug
+    ? `Branded sign-in page: <a href="/?org=${org.slug}" target="_blank">${location.origin}/?org=${org.slug}</a>`
+    : "";
+  loadPendingInvites(org);
+}
+
+async function loadPendingInvites(org) {
+  const resp = await api(`/api/orgs/${org.id}/invites`);
+  if (!resp.ok) return;
+  const pending = ((await resp.json()).invites || []).filter((i) => i.status === "pending");
+  $("pendinginvites").innerHTML = pending.length
+    ? "Pending: " + pending.map((i) =>
+        `${i.email} (${i.role}) <a href="#" data-revoke="${i.id}">revoke</a>`).join(" · ")
+    : "No pending invites.";
+  $("pendinginvites").querySelectorAll("[data-revoke]").forEach((a) => {
+    a.onclick = async (e) => {
+      e.preventDefault();
+      await api(`/api/orgs/${org.id}/invites/${a.dataset.revoke}`, { method: "DELETE" });
+      loadPendingInvites(org);
+    };
+  });
+}
+
+$("sendinvite").onclick = async () => {
+  const org = selectedOrgObj();
+  if (!org) return;
+  const resp = await api(`/api/orgs/${org.id}/invites`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: $("inviteemail").value.trim(), role: $("inviterole").value }),
+  });
+  if (!resp.ok) { $("invitestatus").textContent = "Invite failed: " + (await resp.text()); return; }
+  const data = await resp.json();
+  $("invitestatus").innerHTML =
+    `Invite created for ${data.email}. Share this one-time link: <a href="${data.inviteLink}">${data.inviteLink}</a> ` +
+    `<a href="#" id="copylink">copy</a> — or they can just sign up with that email and accept in-app.`;
+  $("copylink").onclick = async (e) => { e.preventDefault(); await navigator.clipboard.writeText(data.inviteLink); };
+  $("inviteemail").value = "";
+  loadPendingInvites(org);
+};
+
+$("savebranding").onclick = async () => {
+  const org = selectedOrgObj();
+  if (!org) return;
+  const resp = await api(`/api/orgs/${org.id}/branding`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      displayName: $("bname").value.trim(),
+      logoUrl: $("blogo").value.trim(),
+      tagline: $("btag").value.trim(),
+      primaryColor: $("bcolor").value,
+    }),
+  });
+  $("brandstatus").textContent = resp.ok ? "Branding saved." : "Save failed: " + (await resp.text());
+  if (resp.ok) await loadOrgs();
+};
+
+$("corpus").onchange = () => { loadDocs(); refreshMemberBox(); chatContext = null; $("chatlog").innerHTML = ""; chatSyncCorpus(); };
+
+$("createbiz").onclick = async () => {
+  const name = $("bizname").value.trim();
+  if (!name) return;
+  const resp = await api("/api/orgs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (resp.ok) { $("bizname").value = ""; await loadOrgs(); }
+};
+
+$("addmember").onclick = async () => {
+  const org = selectedOrgObj();
+  if (!org) return;
+  const resp = await api(`/api/orgs/${org.id}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: $("memberemail").value.trim(), role: $("memberrole").value }),
+  });
+  $("memberstatus").textContent = resp.ok
+    ? "Member added."
+    : "Could not add: " + (await resp.text());
+  if (resp.ok) { $("memberemail").value = ""; refreshMemberBox(); }
+};
+
+function mcpConfigJson(tok) {
+  return JSON.stringify({ mcpServers: { khoj: {
+    url: location.origin + "/mcp",
+    headers: { Authorization: "Bearer " + tok },
+  } } }, null, 2);
+}
+async function renderMcpConfig() {
+  $("mcpconfig").textContent = mcpConfigJson(await token());
+}
+$("copymcp").onclick = async () => {
+  await navigator.clipboard.writeText(mcpConfigJson(await token()));
+  $("copymcp").textContent = "Copied ✓";
+  setTimeout(() => { $("copymcp").textContent = "Copy my MCP config"; }, 2000);
+};
+
+async function loadDocs() {
+  const orgId = currentOrg();
+  const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
+  const resp = await fetch("/api/documents" + qs, { headers: { Authorization: "Bearer " + (await token()) } });
+  if (!resp.ok) return;
+  const docs = (await resp.json()).documents || [];
+  window._docsById = {};
+  docs.forEach((d) => { window._docsById[d.id] = d.title; });
+  const chip = (d) => d.status === "ready" ? `<span class="chip ok">ready</span>`
+    : d.status === "failed" ? `<span class="chip bad">failed</span>` : `<span class="chip wait">indexing</span>`;
+  const del = (d) => d.corpus === "own" ? `<button class="docdel" data-doc="${d.id}">Delete</button>` : "";
+  $("doclist").innerHTML = docs.length
+    ? docs.map((d) =>
+        `<div class="docrow"><span>${d.title}${d.error ? ` <span class="muted">(${d.error})</span>` : ""}</span><span class="docactions">${chip(d)}${del(d)}</span></div>`
+      ).join("")
+    : "No documents yet — upload your first one above.";
+  if (docs.some((d) => d.status === "indexing")) setTimeout(loadDocs, 10000);
+}
+
+$("doclist").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".docdel");
+  if (!btn) return;
+  const id = btn.getAttribute("data-doc");
+  const title = (window._docsById || {})[id] || "this document";
+  if (!confirm(`Delete "${title}"? This removes the document, its stored original, and its indexed chunks. This cannot be undone.`)) return;
+  btn.disabled = true;
+  const orgId = currentOrg();
+  const qs = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
+  const resp = await fetch(`/api/documents/${encodeURIComponent(id)}` + qs, {
+    method: "DELETE",
+    headers: { Authorization: "Bearer " + (await token()) },
+  });
+  if (resp.ok) { loadDocs(); }
+  else { btn.disabled = false; alert("Could not delete: " + (await resp.text())); }
+});
+
+async function doSearch() {
+  const q = $("q").value.trim();
+  if (!q) return;
+  $("searcherr").textContent = ""; $("results").innerHTML = ""; $("summary").classList.add("hidden");
+  const resp = await fetch("/api/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + (await token()) },
+    body: JSON.stringify({ query: q, orgId: currentOrg() }),
+  });
+  if (!resp.ok) { $("searcherr").textContent = "Search failed: " + (await resp.text()); return; }
+  const data = await resp.json();
+  if (data.summary) { $("summary").textContent = data.summary; $("summary").classList.remove("hidden"); }
+  $("results").innerHTML = data.results.map((r) => `
+    <div class="result">
+      <h3>${r.link ? `<a href="${r.link}" target="_blank" rel="noopener">${r.title || "Document"}</a>` : (r.title || "Document")}</h3>
+      ${(r.extractive || []).map((s) => `<div>${s}</div>`).join("")}
+      ${(r.snippets || []).map((s) => `<div class="muted">${s}</div>`).join("")}
+    </div>`).join("") || `<p class="muted">No results.</p>`;
+}
+$("go").onclick = doSearch;
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+
+let chatContext = null;
+function chatScroll() { const log = $("chatlog"); log.scrollTop = log.scrollHeight; }
+
+// Minimal, safe Markdown rendering for chat answers: the text is
+// HTML-escaped FIRST, then a small subset is applied (headings,
+// bold, italic, inline code, bullet/numbered lists, paragraphs).
+// Model output can quote arbitrary document text, so nothing raw
+// ever reaches innerHTML.
+function mdInline(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+}
+function mdToHtml(text) {
+  const esc = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const out = [];
+  let list = null; // "ul" | "ol" | null
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of esc.split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (bullet || numbered) {
+      const kind = bullet ? "ul" : "ol";
+      if (list !== kind) { closeList(); out.push(`<${kind}>`); list = kind; }
+      out.push(`<li>${mdInline((bullet || numbered)[1])}</li>`);
+    } else if (heading) {
+      closeList();
+      out.push(`<div class="mdh">${mdInline(heading[2])}</div>`);
+    } else if (!line.trim()) {
+      closeList();
+      out.push("");
+    } else {
+      closeList();
+      out.push(`<p>${mdInline(line)}</p>`);
+    }
+  }
+  closeList();
+  return out.join("\n");
+}
+
+function chatAdd(who, body, cls, asMarkdown) {
+  const div = document.createElement("div");
+  div.className = "msg " + (cls || (who === "You" ? "you" : "bot"));
+  if (asMarkdown) { div.classList.add("md"); div.innerHTML = mdToHtml(body); }
+  else div.textContent = body;
+  $("chatlog").appendChild(div);
+  chatScroll();
+  return div;
+}
+function chatSyncCorpus() {
+  const sel = $("corpus");
+  $("chatcorpus").textContent = sel && sel.selectedIndex > 0 ? sel.options[sel.selectedIndex].text : "My documents";
+}
+$("chatfab").onclick = () => { $("chatpanel").classList.add("open"); chatSyncCorpus(); $("chatinput").focus(); };
+$("chatclose").onclick = () => $("chatpanel").classList.remove("open");
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("chatpanel").classList.remove("open"); });
+let _jiraEnabled = null;
+async function jiraEnabled() {
+  if (_jiraEnabled !== null) return _jiraEnabled;
+  try {
+    const r = await fetch("/api/jira/status", { headers: { Authorization: "Bearer " + (await token()) } });
+    const d = await r.json();
+    _jiraEnabled = !!d.enabled;
+  } catch (e) { _jiraEnabled = false; }
+  return _jiraEnabled;
+}
+async function submitJiraTicket(btn, question, answer, orgId, extraFields, onError) {
+  try {
+    const r = await fetch("/api/jira/ticket", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + (await token()) },
+      body: JSON.stringify({ question: question, answer: answer, orgId: orgId, extraFields: extraFields }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    const a = document.createElement("a");
+    a.href = d.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "🎫 " + d.key;
+    btn.replaceWith(a);
+    return true;
+  } catch (e) {
+    $("chaterr").textContent = "Jira ticket failed: " + e.message;
+    if (onError) onError();
+    return false;
+  }
+}
+
+// When the project requires fields Khoj doesn't supply (Components,
+// Affects versions, ...), prompt for them inline instead of letting
+// the create fail: one dropdown per field (free text when the
+// project lists no allowed values), then a single create call.
+function showJiraForm(row, fields, question, answer, orgId, btn) {
+  const form = document.createElement("div");
+  form.className = "jiraform";
+  const inputs = {};
+  for (const f of fields) {
+    const lab = document.createElement("label");
+    lab.textContent = f.name + ": ";
+    let inp;
+    if (f.allowedValues && f.allowedValues.length) {
+      inp = document.createElement("select");
+      for (const v of f.allowedValues) {
+        const o = document.createElement("option");
+        o.value = v.name;
+        o.textContent = v.name;
+        inp.appendChild(o);
+      }
+    } else {
+      inp = document.createElement("input");
+      inp.type = "text";
+      // Reporter defaults to the signed-in user's email (editable -
+      // the server resolves it to a Jira accountId at create time).
+      if (f.key === "reporter" && typeof _email !== "undefined" && _email) inp.value = _email;
+    }
+    inputs[f.key] = { el: inp, multi: !!f.multi };
+    lab.appendChild(inp);
+    form.appendChild(lab);
+  }
+  const go = document.createElement("button");
+  go.className = "ticketbtn";
+  go.textContent = "Create ticket";
+  const cancel = document.createElement("button");
+  cancel.className = "ticketbtn";
+  cancel.textContent = "Cancel";
+  cancel.onclick = () => { form.remove(); btn.disabled = false; btn.textContent = "🎫 Create Jira ticket"; };
+  go.onclick = async () => {
+    const extra = {};
+    for (const k in inputs) {
+      const val = inputs[k].el.value.trim();
+      if (val) extra[k] = inputs[k].multi ? [val] : val;
+    }
+    go.disabled = true;
+    go.textContent = "Creating…";
+    const ok = await submitJiraTicket(btn, question, answer, orgId, extra,
+      () => { go.disabled = false; go.textContent = "Create ticket"; });
+    if (ok) form.remove();
+  };
+  form.appendChild(go);
+  form.appendChild(cancel);
+  row.appendChild(form);
+  chatScroll();
+}
+
+async function attachTicketButton(question, answer, orgId) {
+  if (!(await jiraEnabled())) return;
+  const row = document.createElement("div");
+  row.className = "msg-actions";
+  const btn = document.createElement("button");
+  btn.className = "ticketbtn";
+  btn.textContent = "🎫 Create Jira ticket";
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.textContent = "Checking…";
+    try {
+      const fr = await fetch("/api/jira/fields", { headers: { Authorization: "Bearer " + (await token()) } });
+      if (!fr.ok) throw new Error(await fr.text());
+      const fd = await fr.json();
+      if (fd.fields && fd.fields.length) {
+        btn.textContent = "🎫 Create Jira ticket";
+        showJiraForm(row, fd.fields, question, answer, orgId, btn);
+        return;
+      }
+    } catch (e) {
+      $("chaterr").textContent = "Jira ticket failed: " + e.message;
+      btn.disabled = false;
+      btn.textContent = "🎫 Create Jira ticket";
+      return;
+    }
+    btn.textContent = "Creating…";
+    await submitJiraTicket(btn, question, answer, orgId, {}, () => {
+      btn.disabled = false;
+      btn.textContent = "🎫 Create Jira ticket";
+    });
+  };
+  row.appendChild(btn);
+  $("chatlog").appendChild(row);
+  chatScroll();
+}
+async function doChat() {
+  const text = $("chatinput").value.trim();
+  if (!text) return;
+  $("chaterr").textContent = "";
+  chatAdd("You", text);
+  $("chatinput").value = "";
+  $("chatsend").disabled = true;
+  const thinking = chatAdd("Khoj", "Thinking…", "bot thinking");
+  try {
+    const resp = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + (await token()) },
+      body: JSON.stringify({ message: text, contextId: chatContext, orgId: currentOrg() }),
+    });
+    if (!resp.ok) { $("chaterr").textContent = "Chat failed: " + (await resp.text()); return; }
+    const data = await resp.json();
+    chatContext = data.contextId;
+    thinking.remove();
+    chatAdd("Khoj", data.reply + (data.sources && data.sources.length ? "\n\nSources: " + data.sources.join(", ") : ""), null, true);
+    attachTicketButton(text, data.reply, currentOrg());
+  } catch (e) {
+    $("chaterr").textContent = "Chat failed: " + e;
+  } finally {
+    thinking.remove();
+    $("chatsend").disabled = false;
+    chatScroll();
+  }
+}
+$("chatsend").onclick = doChat;
+$("chatinput").addEventListener("keydown", (e) => { if (e.key === "Enter") doChat(); });
+
+$("pickfile").onclick = () => $("docfile").click();
+$("docfile").addEventListener("change", () => {
+  const f = $("docfile").files[0];
+  $("pickedname").textContent = f ? f.name : "No file chosen";
+});
+$("upload").onclick = async () => {
+  const f = $("docfile").files[0];
+  if (!f) { $("uploadstatus").textContent = "Choose a file first."; return; }
+  $("uploadstatus").textContent = "Uploading…";
+  const fd = new FormData(); fd.append("file", f);
+  const orgId = currentOrg();
+  if (orgId) fd.append("orgId", orgId);
+  const resp = await fetch("/api/upload", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + (await token()) },
+    body: fd,
+  });
+  $("uploadstatus").textContent = resp.ok
+    ? "Uploaded " + f.name + " — indexing started (can take a few minutes)."
+    : "Upload failed: " + (await resp.text());
+  if (resp.ok) setTimeout(loadDocs, 3000);
+};
+
+// --- sidebar view navigation ---
+function showView(name) {
+  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("hidden", v.id !== "view-" + name));
+  document.querySelectorAll(".navbtn[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
+}
+document.querySelectorAll(".navbtn[data-view]").forEach((b) => { b.onclick = () => showView(b.dataset.view); });
+$("navchat").onclick = () => $("chatfab").click();
+</script>
+
+<!-- Floating chat widget (A2A agent) -->
+<button id="chatfab" class="hidden" title="Chat with your documents" aria-label="Open chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+<aside id="chatpanel" aria-label="Chat with your documents">
+  <div id="chathead">
+    <div>
+      <div class="t">Chat with your documents</div>
+      <div class="muted" id="chatcorpus">My documents</div>
+    </div>
+    <button id="chatclose" aria-label="Close chat">✕</button>
+  </div>
+  <div id="chatlog"></div>
+  <div id="chatfoot">
+    <div class="row">
+      <input id="chatinput" type="text" placeholder="Ask anything…" />
+      <button id="chatsend" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
+    </div>
+    <div class="err" id="chaterr"></div>
+    <div class="muted" style="font-size:12px">Powered by the Khoj A2A agent — answers are grounded in the selected corpus.</div>
+  </div>
+</aside>
+</body>
+</html>

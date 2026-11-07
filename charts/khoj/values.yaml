@@ -1,0 +1,85 @@
+image:
+  repository: us-central1-docker.pkg.dev/innovation-lab-2026/khoj/khoj
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Khoj state: one data directory (SQLite khoj.db + locally stored
+# originals) on the PVC below. Nothing here needs Google APIs unless
+# storage.backend is set to gcs.
+data:
+  dir: /data
+  size: 2Gi
+  storageClass: ""        # cluster default
+
+# Original-file storage - the deployer chooses the backend:
+#   local: originals on the data PVC (zero cloud dependency)
+#   gcs:   originals in the named GCS bucket (needs Workload Identity
+#          with storage access - see workloadIdentity below)
+storage:
+  backend: local
+  bucket: ""
+
+# Built-in auth (app/auth.py): accounts live in SQLite; sessions are
+# app-issued JWTs signed with a shared secret. The secret VALUE comes
+# from GSM via the ExternalSecret below, never from values.
+auth:
+  # Comma-separated emails that become platform super admins at
+  # sign-in (they are seeded as admins of the platform org).
+  superAdminEmail: "anuj.gupta9860@gmail.com"
+  secretName: khoj-auth
+  externalSecret:
+    enabled: true
+    gsmKey: khoj-auth-secret        # Google Secret Manager secret holding the signing secret
+    refreshInterval: 1h
+
+# OpenRAG: the single retrieval engine (in-cluster service)
+openrag:
+  url: "http://openrag-backend:8000"
+
+# A2A chat agent (in-cluster address of the khoj-agent service)
+agent:
+  url: "http://khoj-agent"
+
+# Jira ticket creation from chat answers (optional). EVERY Atlassian
+# setting lives here in Helm values - the app only reads env. baseUrl/
+# email/projectKey/issueType are plain config; the API token itself is
+# the one exception: it comes from GSM via the ExternalSecret below
+# (point gsmKey at the secret that holds it), never from values.
+# Empty baseUrl = feature off.
+jira:
+  baseUrl: "https://khoj.atlassian.net"
+  email: "anuj.gupta9860@gmail.com"   # Atlassian account email the API token belongs to
+  projectKey: "RAG"                   # default project for new tickets (the "Rag" project on this site)
+  issueType: "Task"                   # issue type created by the button
+  components: ""                      # comma-separated names, if the project requires Components on create
+  affectsVersions: ""                 # comma-separated names, if the project requires Affects versions on create
+  secretName: khoj-jira               # k8s Secret the ExternalSecret creates
+  externalSecret:
+    enabled: true
+    gsmKey: khoj-jira-api-token       # Google Secret Manager secret holding the API token
+    refreshInterval: 1h
+
+workloadIdentity:
+  # Google service account the pods act as. Only used when
+  # storage.backend=gcs (storage access to the bucket). Empty = no
+  # binding, which is all a local-storage deployment needs.
+  gsaEmail: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  host: "34.8.195.76.nip.io"  # public hostname (nip.io wildcard DNS -> the LB IP); the template also keeps a hostless catch-all rule, so the bare IP keeps working
+  staticIpName: ""    # GKE reserved static IP name, optional
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"

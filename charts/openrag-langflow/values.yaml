@@ -1,0 +1,27 @@
+image: langflowai/openrag-langflow:latest
+doclingUrl: http://docling:5001
+ingress:
+  enabled: true
+  host: "136.68.156.112.nip.io"  # public hostname (nip.io wildcard DNS -> the LB IP); the template also keeps a hostless catch-all rule, so the bare IP keeps working
+  staticIpName: ""    # GKE reserved static IP name, optional
+# Embedding provider + model the ingestion flow uses (env-forced Langflow
+# globals). GKE runs on LiteLLM's native "gemini" provider (Google AI
+# Studio key, no Vertex): the provider name + bare model name keep the
+# stored embedding-space id ("gemini:gemini-embedding-001") identical to
+# the route the search side resolves, which is what makes semantic
+# search work. (The earlier "openai:openai/..." qualified form embedded
+# fine but produced a triple-prefixed space id search could not route.)
+embeddingProvider: "gemini"
+embeddingModel: "gemini-embedding-001"
+
+superuser: langflow
+# Password is NOT a value: it syncs from Google Secret Manager
+# (openrag-langflow-superuser-password) via External Secrets Operator.
+persistence:
+  enabled: true
+  size: 5Gi
+  # Confirm against the image on first install; upstream keeps its DB here.
+  mountPath: /app/langflow-data
+resources:
+  requests: { cpu: "500m", memory: "1Gi" }
+  limits: { cpu: "2", memory: "4Gi" }
