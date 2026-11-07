@@ -82,6 +82,12 @@ spec:
     spec:
       containers:
         - name: kvrocks
+          # Root, like upstream's compose (user: "0"): kvrocks opens
+          # its log file inside the data dir at startup and crashes
+          # (spdlog file_helper::open) when the PVC is root-owned
+          # but the process is not - seen live 2026-11-06.
+          securityContext:
+            runAsUser: 0
           image: {{ .Values.kvrocks.image }}
           # The stock image config listens on 6666; RAGFlow expects
           # the Redis port. Upstream renders a config file for this;
