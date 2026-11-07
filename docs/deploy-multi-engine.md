@@ -49,7 +49,8 @@ gcloud builds submit --tag us-central1-docker.pkg.dev/innovation-lab-2026/khoj/k
 6. Install Khoj into the same namespace:
    `helm install khoj charts/khoj -n khoj-ragflow --set image.tag=multi-0.1.0 --set engine.name=ragflow --set engine.ragflowExternalSecret.enabled=true --set agent.url=http://khoj-agent:8080`
    and the agent:
-   `helm install khoj-agent charts/khoj-agent -n khoj-ragflow --set image.tag=multi-0.1.0 --set engine.name=ragflow --set engine.ragflowExternalSecret.enabled=true`
+   `helm install khoj-agent charts/khoj-agent -n khoj-ragflow --set image.tag=multi-0.1.0 --set engine.name=ragflow`
+   (Do NOT set engine.ragflowExternalSecret.enabled=true on the agent: the web chart owns the shared ExternalSecret `khoj-ragflow`, and a second owner fails helm's ownership check — live finding 2026-11-07. The agent reads the same synced Secret by name. Same rule for the NeMo engine's nvidia ExternalSecret.)
    (agent `web.url` must point at the in-namespace web service —
    check values before installing.)
 7. Give the Khoj release its own ingress/IP (same pattern as the
