@@ -47,6 +47,13 @@ spec:
             - { name: KVROCKS_PORT, value: "6379" }
             - { name: REDIS_PASSWORD, value: {{ .Values.redis.password | quote }} }
             - { name: NATS_HOST, value: nats }
+            # Explicit on purpose: a Service named "nats" makes
+            # Kubernetes inject NATS_PORT=tcp://<clusterIP>:4222,
+            # which RAGFlow renders as its NATS port (parsed as 0)
+            # and every server dies dialing port 0 - live finding
+            # 2026-11-07. Same reason MYSQL_PORT/KVROCKS_PORT are
+            # set explicitly above.
+            - { name: NATS_PORT, value: "4222" }
             - { name: TZ, value: UTC }
           ports:
             - { containerPort: 9380 }
