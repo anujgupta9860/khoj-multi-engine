@@ -75,7 +75,10 @@ class RAGFlowEngine(Engine):
                 return ds["id"]
         if not create:
             return None
-        payload = {"name": name, "chunk_method": "naive"}
+        # RAGFlow v1.0 dataset-create schema: no chunk_method field
+        # (rejected as an extra input, live finding 2026-11-07); the
+        # general parser is selected with parse_type/parser_id.
+        payload = {"name": name, "parse_type": 1, "parser_id": "general"}
         if EMBEDDING_MODEL:
             payload["embedding_model"] = EMBEDDING_MODEL
         data = self._call("POST", "/api/v1/datasets", json=payload)
