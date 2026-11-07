@@ -1,0 +1,74 @@
+# RAGFlow engine stack. Passwords never live here: one ExternalSecret
+# syncs them from Google Secret Manager into the `ragflow-secrets`
+# Secret (keys created at deploy time - see
+# docs/deploy-multi-engine.md).
+
+image:
+  repository: infiniflow/ragflow
+  tag: "v1.0.0"
+  pullPolicy: IfNotPresent
+
+# Doc engine: elasticsearch (RAGFlow's default) or infinity (their
+# single-container engine - lighter, slightly different retrieval
+# characteristics). Pick one per deployment; the Khoj comparison
+# should note which was used.
+docEngine: elasticsearch
+
+mysql:
+  image: mysql:8.0.40
+  database: rag_flow
+  pvcSize: 5Gi
+  resources:
+    requests: { cpu: "250m", memory: "512Mi" }
+    limits: { cpu: "1", memory: "2Gi" }
+
+elasticsearch:
+  image: elasticsearch:8.11.3
+  pvcSize: 10Gi
+  javaOpts: "-Xms1g -Xmx1g"
+  resources:
+    requests: { cpu: "500m", memory: "2Gi" }
+    limits: { cpu: "2", memory: "4Gi" }
+
+infinity:
+  image: infiniflow/infinity:v0.7.5-x64-v3
+  pvcSize: 10Gi
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits: { cpu: "2", memory: "4Gi" }
+
+minio:
+  image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+  user: rag_flow
+  pvcSize: 10Gi
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits: { cpu: "1", memory: "1Gi" }
+
+kvrocks:
+  image: apache/kvrocks:2.16.0
+  pvcSize: 2Gi
+
+nats:
+  image: nats:2
+
+server:
+  resources:
+    requests: { cpu: "1", memory: "2Gi" }
+    limits: { cpu: "4", memory: "8Gi" }
+  # The RAGFlow web UI (bundled nginx on port 80) gets its own
+  # ingress only when enabled - the Khoj web app is the product UI;
+  # this exists for API-key/LLM admin during setup.
+  ingress:
+    enabled: false
+    host: ""
+
+secrets:
+  secretName: ragflow-secrets
+  externalSecret:
+    enabled: true
+    refreshInterval: 1h
+    gsmKeys:
+      mysqlPassword: ragflow-mysql-password
+      elasticPassword: ragflow-elastic-password
+      minioPassword: ragflow-minio-password

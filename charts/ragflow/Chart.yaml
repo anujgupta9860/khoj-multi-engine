@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ragflow
+description: RAGFlow engine stack for a Khoj deployment (server + MySQL + doc engine + MinIO + KvRocks + NATS), one namespace per Khoj engine stack.
+type: application
+version: 0.1.0
+appVersion: v1.0.0

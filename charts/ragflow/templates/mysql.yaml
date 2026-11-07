@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ragflow-mysql-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.mysql.pvcSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ragflow-mysql
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: ragflow-mysql }
+  template:
+    metadata:
+      labels: { app: ragflow-mysql }
+    spec:
+      containers:
+        - name: mysql
+          image: {{ .Values.mysql.image }}
+          args: ["--max_allowed_packet=1073741824"]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.secretName }}
+                  key: MYSQL_PASSWORD
+            - name: MYSQL_DATABASE
+              value: {{ .Values.mysql.database }}
+          ports: [{ containerPort: 3306 }]
+          readinessProbe:
+            tcpSocket: { port: 3306 }
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.mysql.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/mysql }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: ragflow-mysql-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector: { app: ragflow-mysql }
+  ports: [{ port: 3306, targetPort: 3306 }]

@@ -1,0 +1,53 @@
+{{- if eq .Values.docEngine "infinity" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ragflow-infinity-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.infinity.pvcSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ragflow-infinity
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: ragflow-infinity }
+  template:
+    metadata:
+      labels: { app: ragflow-infinity }
+    spec:
+      containers:
+        - name: infinity
+          image: {{ .Values.infinity.image }}
+          ports:
+            - { containerPort: 23817 }
+            - { containerPort: 23820 }
+            - { containerPort: 5432 }
+          readinessProbe:
+            tcpSocket: { port: 23817 }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.infinity.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/infinity }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: ragflow-infinity-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infinity
+spec:
+  selector: { app: ragflow-infinity }
+  ports:
+    - { name: thrift, port: 23817, targetPort: 23817 }
+    - { name: http, port: 23820, targetPort: 23820 }
+    - { name: psql, port: 5432, targetPort: 5432 }
+{{- end }}

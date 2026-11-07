@@ -83,3 +83,21 @@ resources:
   limits:
     cpu: "1"
     memory: "1Gi"
+
+# Retrieval engine for this deployment (app/engines): openrag |
+# ragflow | nemo. Each engine stack runs in its own namespace, so the
+# in-namespace service names below are the defaults for that stack.
+engine:
+  name: openrag
+  ragflowUrl: "http://ragflow:9380"
+  ragflowSecretName: khoj-ragflow
+  ragflowExternalSecret:
+    enabled: false
+    gsmKey: ragflow-api-key
+    refreshInterval: 1h
+  milvusUrl: "http://milvus:19530"
+  nvidiaSecretName: khoj-nvidia
+  nvidiaExternalSecret:
+    enabled: false
+    gsmKey: nvidia-api-key
+    refreshInterval: 1h

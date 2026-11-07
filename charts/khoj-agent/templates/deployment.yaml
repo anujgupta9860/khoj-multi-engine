@@ -30,6 +30,26 @@ spec:
                   optional: true
             - name: OPENRAG_URL
               value: {{ .Values.openrag.url }}
+            - name: KHOJ_ENGINE
+              value: {{ .Values.engine.name | quote }}
+            {{- if eq .Values.engine.name "ragflow" }}
+            - name: RAGFLOW_URL
+              value: {{ .Values.engine.ragflowUrl }}
+            - name: RAGFLOW_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.engine.ragflowSecretName }}
+                  key: RAGFLOW_API_KEY
+            {{- end }}
+            {{- if eq .Values.engine.name "nemo" }}
+            - name: MILVUS_URL
+              value: {{ .Values.engine.milvusUrl }}
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.engine.nvidiaSecretName }}
+                  key: NVIDIA_API_KEY
+            {{- end }}
             - name: OPENAI_MODEL
               value: {{ .Values.openai.model }}
             - name: OPENAI_BASE_URL

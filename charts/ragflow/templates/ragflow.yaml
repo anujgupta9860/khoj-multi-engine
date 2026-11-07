@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ragflow
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: ragflow }
+  template:
+    metadata:
+      labels: { app: ragflow }
+    spec:
+      containers:
+        - name: ragflow
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Same flags as the upstream compose service: admin server
+          # on 9381 and first-boot superuser creation.
+          args: ["--enable-adminserver", "--init-superuser"]
+          env:
+            - { name: DOC_ENGINE, value: {{ .Values.docEngine | quote }} }
+            - { name: MYSQL_HOST, value: mysql }
+            - { name: MYSQL_PORT, value: "3306" }
+            - { name: MYSQL_USER, value: root }
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.secretName }}
+                  key: MYSQL_PASSWORD
+            - { name: MYSQL_DBNAME, value: {{ .Values.mysql.database }} }
+            - { name: MINIO_HOST, value: minio }
+            - { name: MINIO_USER, value: {{ .Values.minio.user }} }
+            - name: MINIO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.secretName }}
+                  key: MINIO_PASSWORD
+            - { name: ES_HOST, value: es01 }
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.secretName }}
+                  key: ELASTIC_PASSWORD
+            - { name: INFINITY_HOST, value: infinity }
+            - { name: KVROCKS_HOST, value: kvrocks }
+            - { name: KVROCKS_PORT, value: "6379" }
+            - { name: NATS_HOST, value: nats }
+            - { name: TZ, value: UTC }
+          ports:
+            - { containerPort: 9380 }
+            - { containerPort: 9381 }
+            - { containerPort: 80 }
+          readinessProbe:
+            tcpSocket: { port: 9380 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ragflow
+spec:
+  selector: { app: ragflow }
+  ports:
+    - { name: api, port: 9380, targetPort: 9380 }
+    - { name: admin, port: 9381, targetPort: 9381 }
+    - { name: web, port: 80, targetPort: 80 }
+{{- if .Values.server.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ragflow
+  annotations:
+    kubernetes.io/ingress.class: gce
+spec:
+  defaultBackend:
+    service:
+      name: ragflow
+      port: { number: 80 }
+  {{- if .Values.server.ingress.host }}
+  rules:
+    - host: {{ .Values.server.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ragflow
+                port: { number: 80 }
+  {{- end }}
+{{- end }}

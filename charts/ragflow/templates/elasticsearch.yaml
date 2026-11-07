@@ -1,0 +1,63 @@
+{{- if eq .Values.docEngine "elasticsearch" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ragflow-es-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.elasticsearch.pvcSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ragflow-es01
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: ragflow-es01 }
+  template:
+    metadata:
+      labels: { app: ragflow-es01 }
+    spec:
+      # Elasticsearch's vm.max_map_count bootstrap check; the sysctl
+      # is in GKE Autopilot's allowed set. If the pod still refuses
+      # to start on it, flip docEngine to infinity instead.
+      securityContext:
+        sysctls:
+          - { name: vm.max_map_count, value: "262144" }
+      containers:
+        - name: elasticsearch
+          image: {{ .Values.elasticsearch.image }}
+          env:
+            - { name: discovery.type, value: single-node }
+            - { name: xpack.security.enabled, value: "true" }
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.secretName }}
+                  key: ELASTIC_PASSWORD
+            - name: ES_JAVA_OPTS
+              value: {{ .Values.elasticsearch.javaOpts }}
+          ports: [{ containerPort: 9200 }]
+          readinessProbe:
+            tcpSocket: { port: 9200 }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.elasticsearch.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /usr/share/elasticsearch/data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: ragflow-es-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: es01
+spec:
+  selector: { app: ragflow-es01 }
+  ports: [{ port: 9200, targetPort: 9200 }]
+{{- end }}

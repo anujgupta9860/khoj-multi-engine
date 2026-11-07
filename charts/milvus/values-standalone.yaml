@@ -1,0 +1,20 @@
+# Milvus standalone via the official milvus-io/milvus-helm chart
+# (deploy: helm repo add + install with this file - see
+# docs/deploy-multi-engine.md). Standalone = 1 Milvus + bundled
+# etcd + MinIO, all in the khoj-nemo namespace.
+cluster:
+  enabled: false
+etcd:
+  replicaCount: 1
+  persistence:
+    size: 5Gi
+minio:
+  mode: standalone
+  persistence:
+    size: 10Gi
+pulsarv3:
+  enabled: false
+pulsar:
+  enabled: false
+# Woodpecker (Milvus 2.5+/3.x log store) replaces the message queue
+# in standalone when enabled by the chart defaults; keep defaults.
